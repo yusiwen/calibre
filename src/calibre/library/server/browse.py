@@ -155,15 +155,13 @@ def get_category_items(category, items, datatype, prefix):  # {{{
                 '<div>{1}</div>'
                 '<div>{2}</div></div>')
         rating, rstring = render_rating(i.avg_rating, prefix)
-        if i.use_sort_as_name:
-            name = xml(i.sort)
-        else:
-            name = xml(i.name)
+        orig_name = i.sort if i.use_sort_as_name else i.name
+        name = xml(orig_name)
         if datatype == 'rating':
             name = xml(_('%d stars')%int(i.avg_rating))
         id_ = i.id
         if id_ is None:
-            id_ = hexlify(force_unicode(name).encode('utf-8'))
+            id_ = hexlify(force_unicode(orig_name).encode('utf-8'))
         id_ = xml(str(id_))
         desc = ''
         if i.count > 0:
@@ -284,8 +282,8 @@ class BrowseServer(object):
         ans = ans.replace('{Search}', _('Search'))
         opts = ['<option %svalue="%s">%s</option>' % (
             'selected="selected" ' if k==sort else '',
-            xml(k), xml(n), ) for k, n in
-                sorted(sort_opts, key=lambda x: sort_key(operator.itemgetter(1)(x))) if k and n]
+            xml(k), xml(nl), ) for k, nl in
+                sorted(sort_opts, key=lambda x: sort_key(operator.itemgetter(1)(x))) if k and nl]
         ans = ans.replace('{sort_select_options}', ('\n'+' '*20).join(opts))
         lp = self.db.library_path
         if isbytestring(lp):
@@ -500,7 +498,9 @@ class BrowseServer(object):
                     datatype, self.opts.url_prefix)
             href = re.search(r'<a href="([^"]+)"', html)
             if href is not None:
-                raise cherrypy.InternalRedirect(href.group(1))
+                # cherrypy does not auto unquote params when using
+                # InternalRedirect
+                raise cherrypy.InternalRedirect(unquote(href.group(1)))
 
         if len(items) <= self.opts.max_opds_ungrouped_items:
             script = 'false'
@@ -675,6 +675,7 @@ class BrowseServer(object):
                 which = unhexlify(cid).decode('utf-8')
                 vls = self.db.prefs.get('virtual_libraries', {})
                 ids = self.search_cache(vls[which])
+                category_name = _('virtual library: ') + xml(which)
                 if not ids:
                     msg = _('The virtual library <b>%s</b> has no books.') % prepare_string_for_xml(which)
                     if self.search_restriction:
@@ -815,7 +816,9 @@ class BrowseServer(object):
                         (xml(href, True), rt, xml(_('Get')))
                 args['get_url'] = xml(href, True)
             else:
-                args['get_button'] = args['get_url'] = ''
+                args['get_button'] = ''
+                args['get_url'] = 'javascript:alert(\'%s\')' % xml(_(
+                    'This book has no available formats to view'), True)
             args['comments'] = comments_to_html(mi.comments)
             args['stars'] = ''
             if mi.rating:
@@ -836,7 +839,7 @@ class BrowseServer(object):
         raw = json.dumps('\n'.join(summs), ensure_ascii=True)
         return raw
 
-    def browse_render_details(self, id_, add_random_button=False):
+    def browse_render_details(self, id_, add_random_button=False, add_title=False):
         try:
             mi = self.db.get_metadata(id_, index_is_id=True)
         except:
@@ -849,7 +852,8 @@ class BrowseServer(object):
                 args['get_url'] = xml(self.opts.url_prefix + '/get/%s/%s_%d.%s'%(
                     fmt, fname, id_, fmt), True)
             else:
-                args['get_url'] = ''
+                args['get_url'] = 'javascript:alert(\'%s\')' % xml(_(
+                    'This book has no available formats to view'), True)
             args['formats'] = ''
             if fmts:
                 ofmts = [u'<a href="{4}/get/{0}/{1}_{2}.{0}" title="{3}">{3}</a>'
@@ -880,7 +884,7 @@ class BrowseServer(object):
                             for name, id_typ, id_val, url in urls]
                     links = u', '.join(links)
                     if links:
-                        fields.append((m['name'], u'<strong>%s: </strong>%s'%(
+                        fields.append((field, m['name'], u'<strong>%s: </strong>%s'%(
                             _('Ids'), links)))
                         continue
 
@@ -891,10 +895,15 @@ class BrowseServer(object):
                 else:
                     r = u'<strong>%s: </strong>'%xml(m['name']) + \
                                 args[field]
-                fields.append((m['name'], r))
+                fields.append((field, m['name'], r))
 
-            fields.sort(key=lambda x: sort_key(x[0]))
-            fields = [u'<div class="field">{0}</div>'.format(f[1]) for f in
+            def fsort(x):
+                num = {'authors':0, 'series':1, 'tags':2}.get(x[0], 100)
+                return (num, sort_key(x[-1]))
+            fields.sort(key=fsort)
+            if add_title:
+                fields.insert(0, ('title', 'Title', u'<strong>%s: </strong>%s' % (xml(_('Title')), xml(mi.title))))
+            fields = [u'<div class="field">{0}</div>'.format(f[-1]) for f in
                     fields]
             fields = u'<div class="fields">%s</div>'%('\n\n'.join(fields))
 
@@ -934,9 +943,9 @@ class BrowseServer(object):
             book_id = random.choice(self.search_for_books(''))
         except IndexError:
             raise cherrypy.HTTPError(404, 'This library has no books')
-        ans = self.browse_render_details(book_id, add_random_button=True)
+        ans = self.browse_render_details(book_id, add_random_button=True, add_title=True)
         return self.browse_template('').format(
-                title='', script='book();', main=ans)
+                title=prepare_string_for_xml(self.db.title(book_id, index_is_id=True)), script='book();', main=ans)
 
     @Endpoint()
     def browse_book(self, id=None, category_sort=None):
@@ -945,9 +954,9 @@ class BrowseServer(object):
         except:
             raise cherrypy.HTTPError(404, 'invalid id: %r'%id)
 
-        ans = self.browse_render_details(id_)
+        ans = self.browse_render_details(id_, add_title=True)
         return self.browse_template('').format(
-                title='', script='book();', main=ans)
+                title=prepare_string_for_xml(self.db.title(id_, index_is_id=True)), script='book();', main=ans)
 
     # }}}
 

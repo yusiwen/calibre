@@ -77,7 +77,7 @@ class Plumber(object):
 
     def __init__(self, input, output, log, report_progress=DummyReporter(),
             dummy=False, merge_plugin_recs=True, abort_after_input_dump=False,
-            override_input_metadata=False, for_regex_wizard=False):
+            override_input_metadata=False, for_regex_wizard=False, view_kepub=False):
         '''
         :param input: Path to input file.
         :param output: Path to output file/directory
@@ -105,7 +105,8 @@ OptionRecommendation(name='verbose',
             recommended_value=0, level=OptionRecommendation.LOW,
             short_switch='v',
             help=_('Level of verbosity. Specify multiple times for greater '
-                   'verbosity.')
+                   'verbosity. Specifying it twice will result in full '
+                   'verbosity, once medium verbosity and zero times least verbosity.')
         ),
 
 OptionRecommendation(name='debug_pipeline',
@@ -368,7 +369,10 @@ OptionRecommendation(name='expand_css',
             help=_(
                 'By default, calibre will use the shorthand form for various'
                 ' css properties such as margin, padding, border, etc. This'
-                ' option will cause it to use the full expanded form instead.')
+                ' option will cause it to use the full expanded form instead.'
+                ' Note that CSS is always expanded when generating EPUB files'
+                ' with the output profile set to one of the Nook profiles'
+                ' as the Nook cannot handle shorthand CSS.')
         ),
 
 OptionRecommendation(name='page_breaks_before',
@@ -699,6 +703,8 @@ OptionRecommendation(name='search_replace',
         if not input_fmt:
             raise ValueError('Input file must have an extension')
         input_fmt = input_fmt[1:].lower().replace('original_', '')
+        if view_kepub and input_fmt.lower() == 'kepub':
+            input_fmt = 'epub'
         self.archive_input_tdir = None
         if input_fmt in ARCHIVE_FMTS:
             self.log('Processing archive...')
@@ -1202,7 +1208,7 @@ def set_regex_wizard_callback(f):
     regex_wizard_callback = f
 
 def create_oebbook(log, path_or_stream, opts, reader=None,
-        encoding='utf-8', populate=True, for_regex_wizard=False):
+        encoding='utf-8', populate=True, for_regex_wizard=False, specialize=None):
     '''
     Create an OEBBook.
     '''
@@ -1214,6 +1220,8 @@ def create_oebbook(log, path_or_stream, opts, reader=None,
             pretty_print=opts.pretty_print, input_encoding=encoding)
     if not populate:
         return oeb
+    if specialize is not None:
+        oeb = specialize(oeb) or oeb
     # Read OEB Book into OEBBook
     log('Parsing all content...')
     if reader is None:

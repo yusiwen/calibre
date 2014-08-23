@@ -10,11 +10,11 @@ __docformat__ = 'restructuredtext en'
 
 import traceback, cPickle, copy, os
 
-from PyQt4.Qt import (QAbstractItemModel, QIcon, QVariant, QFont, Qt,
+from PyQt5.Qt import (QAbstractItemModel, QIcon, QFont, Qt,
         QMimeData, QModelIndex, pyqtSignal, QObject)
 
 from calibre.constants import config_dir
-from calibre.gui2 import NONE, gprefs, config, error_dialog
+from calibre.gui2 import gprefs, config, error_dialog, file_icon_provider
 from calibre.db.categories import Tag
 from calibre.utils.config import tweaks
 from calibre.utils.icu import sort_key, lower, strcmp, collation_order
@@ -31,7 +31,7 @@ def bf():
     if _bf is None:
         _bf = QFont()
         _bf.setBold(True)
-        _bf = QVariant(_bf)
+        _bf = (_bf)
     return _bf
 
 class TagTreeItem(object):  # {{{
@@ -48,7 +48,7 @@ class TagTreeItem(object):  # {{{
         self.id_set = set()
         self.is_gst = False
         self.boxed = False
-        self.icon_state_map = list(map(QVariant, icon_map))
+        self.icon_state_map = list(icon_map)
         if self.parent is not None:
             self.parent.append(self)
 
@@ -58,7 +58,7 @@ class TagTreeItem(object):  # {{{
             self.type = self.TAG if category_icon is None else self.CATEGORY
 
         if self.type == self.CATEGORY:
-            self.name, self.icon = map(QVariant, (data, category_icon))
+            self.name, self.icon = data, category_icon
             self.py_name = data
             self.category_key = category_key
             self.temporary = temporary
@@ -67,7 +67,7 @@ class TagTreeItem(object):  # {{{
                             ['news', 'search', 'identifiers', 'languages'],
                    is_searchable=category_key not in ['search'])
         elif self.type == self.TAG:
-            self.icon_state_map[0] = QVariant(data.icon)
+            self.icon_state_map[0] = data.icon
             self.tag = data
 
         self.tooltip = (tooltip + ' ') if tooltip else ''
@@ -80,8 +80,8 @@ class TagTreeItem(object):  # {{{
         if self.type == self.ROOT:
             return 'ROOT'
         if self.type == self.CATEGORY:
-            return 'CATEGORY:'+str(QVariant.toString(
-                self.name))+':%d'%len(getattr(self,
+            return 'CATEGORY:'+str(
+                self.name)+':%d'%len(getattr(self,
                     'children', []))
         return 'TAG: %s'%self.tag.name
 
@@ -101,13 +101,13 @@ class TagTreeItem(object):  # {{{
             return self.tag_data(role)
         if self.type == self.CATEGORY:
             return self.category_data(role)
-        return NONE
+        return None
 
     def category_data(self, role):
         if role == Qt.DisplayRole:
-            return QVariant(self.py_name + ' [%d]'%len(self.child_tags()))
+            return (self.py_name + ' [%d]'%len(self.child_tags()))
         if role == Qt.EditRole:
-            return QVariant(self.py_name)
+            return (self.py_name)
         if role == Qt.DecorationRole:
             if self.tag.state:
                 return self.icon_state_map[self.tag.state]
@@ -115,8 +115,8 @@ class TagTreeItem(object):  # {{{
         if role == Qt.FontRole:
             return bf()
         if role == Qt.ToolTipRole and self.tooltip is not None:
-            return QVariant(self.tooltip)
-        return NONE
+            return (self.tooltip)
+        return None
 
     def tag_data(self, role):
         tag = self.tag
@@ -136,24 +136,24 @@ class TagTreeItem(object):  # {{{
             count = len(self.id_set)
             count = count if count > 0 else tag.count
             if count == 0:
-                return QVariant('%s'%(name))
+                return ('%s'%(name))
             else:
-                return QVariant('[%d] %s'%(count, name))
+                return ('[%d] %s'%(count, name))
         if role == Qt.EditRole:
-            return QVariant(tag.original_name)
+            return (tag.original_name)
         if role == Qt.DecorationRole:
             return self.icon_state_map[tag.state]
         if role == Qt.ToolTipRole:
             if tt_author:
                 if tag.tooltip is not None:
-                    return QVariant('(%s) %s'%(tag.name, tag.tooltip))
+                    return ('(%s) %s'%(tag.name, tag.tooltip))
                 else:
-                    return QVariant(tag.name)
+                    return (tag.name)
             if tag.tooltip:
-                return QVariant(self.tooltip + tag.tooltip)
+                return (self.tooltip + tag.tooltip)
             else:
-                return QVariant(self.tooltip)
-        return NONE
+                return (self.tooltip)
+        return None
 
     def toggle(self, set_to=None):
         '''
@@ -286,7 +286,7 @@ class TagsModel(QAbstractItemModel):  # {{{
             traceback.print_stack()
             return
         # traceback.print_stack()
-        #print ()
+        # print ()
         self._build_in_progress = True
         self.beginResetModel()
         self._run_rebuild(state_map=state_map)
@@ -451,6 +451,10 @@ class TagsModel(QAbstractItemModel):  # {{{
                 key not in self.db.prefs.get('categories_using_hierarchy', []) or
                 config['sort_tags_by'] != 'name')
 
+            is_formats = key == 'formats'
+            if is_formats:
+                fip = file_icon_provider().icon_from_ext
+
             for idx,tag in enumerate(data[key]):
                 components = None
                 if clear_rating:
@@ -526,7 +530,13 @@ class TagsModel(QAbstractItemModel):  # {{{
                 if (not tag.is_hierarchical) and (in_uc or
                         (fm['is_custom'] and fm['display'].get('is_names', False)) or
                         not category_is_hierarchical or len(components) == 1):
-                    tag.icon = self.category_custom_icons[key]
+                    if is_formats:
+                        try:
+                            tag.icon = fip(tag.name.replace('ORIGINAL_', ''))
+                        except Exception:
+                            tag.icon = self.category_custom_icons[key]
+                    else:
+                        tag.icon = self.category_custom_icons[key]
                     n = self.create_node(parent=node_parent, data=tag, tooltip=tt,
                                     icon_map=self.icon_state_map)
                     if tag.id_set is not None:
@@ -726,9 +736,9 @@ class TagsModel(QAbstractItemModel):  # {{{
                     ('tags', 'series', 'authors', 'rating', 'publisher') or \
                     (fm['is_custom'] and (
                             fm['datatype'] in ['text', 'rating', 'series',
-                                               'enumeration'] or
-                                (fm['datatype'] == 'composite' and
-                                 fm['display'].get('make_category', False)))):
+                                               'enumeration'] or (
+                                                   fm['datatype'] == 'composite' and
+                                                   fm['display'].get('make_category', False)))):
                     mime = 'application/calibre+from_library'
                     ids = list(map(int, str(md.data(mime)).split()))
                     self.handle_drop(node, ids)
@@ -848,6 +858,8 @@ class TagsModel(QAbstractItemModel):  # {{{
                         icon_map=self.category_icon_map,
                         ids=self.db.search('', return_matches=True, sort_results=False))
             except:
+                import traceback
+                traceback.print_exc()
                 data = self.db.get_categories(sort=sort, icon_map=self.category_icon_map)
                 self.restriction_error.emit()
         else:
@@ -876,7 +888,7 @@ class TagsModel(QAbstractItemModel):  # {{{
                     tb_cats.add_user_category(label=u'@' + cat, name=cat)
                 except ValueError:
                     traceback.print_exc()
-        self.db.data.change_search_locations(self.db.field_metadata.get_search_terms())
+        self.db.new_api.refresh_search_locations()
 
         if len(self.db.saved_search_names()):
             tb_cats.add_search_category(label='search', name=_('Searches'))
@@ -938,7 +950,7 @@ class TagsModel(QAbstractItemModel):  # {{{
 
     def data(self, index, role):
         if not index.isValid():
-            return NONE
+            return None
         item = self.get_node(index)
         return item.data(role)
 
@@ -948,7 +960,7 @@ class TagsModel(QAbstractItemModel):  # {{{
         # set up to reposition at the same item. We can do this except if
         # working with the last item and that item is deleted, in which case
         # we position at the parent label
-        val = unicode(value.toString()).strip()
+        val = unicode(value or '').strip()
         if not val:
             error_dialog(self.gui_parent, _('Item is blank'),
                         _('An item cannot be set to nothing. Delete it instead.')).exec_()
@@ -1012,7 +1024,7 @@ class TagsModel(QAbstractItemModel):  # {{{
                 error_dialog(self.gui_parent, _('Duplicate search name'),
                     _('The saved search name %s is already used.')%val).exec_()
                 return False
-            self.db.saved_search_rename(unicode(item.data(role).toString()), val)
+            self.db.saved_search_rename(unicode(item.data(role) or ''), val)
             item.tag.name = val
             self.search_item_renamed.emit()  # Does a refresh
         else:
@@ -1077,7 +1089,7 @@ class TagsModel(QAbstractItemModel):  # {{{
             self.db.prefs.set('user_categories', user_cats)
 
     def headerData(self, *args):
-        return NONE
+        return None
 
     def flags(self, index, *args):
         ans = Qt.ItemIsEnabled|Qt.ItemIsEditable

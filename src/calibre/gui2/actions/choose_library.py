@@ -8,7 +8,7 @@ __docformat__ = 'restructuredtext en'
 import os, posixpath, weakref
 from functools import partial
 
-from PyQt4.Qt import (QMenu, Qt, QInputDialog, QToolButton, QDialog,
+from PyQt5.Qt import (QMenu, Qt, QInputDialog, QToolButton, QDialog,
         QDialogButtonBox, QGridLayout, QLabel, QLineEdit, QIcon, QSize,
         QCoreApplication, pyqtSignal, QVBoxLayout, QTimer)
 
@@ -359,6 +359,9 @@ class ChooseLibraryAction(InterfaceAction):
         self.gui.location_manager.set_switch_actions(quick_actions,
                 rename_actions, delete_actions, qs_actions,
                 self.action_choose)
+        # Allow the cloned actions in the OS X global menubar to update
+        for a in (self.qaction, self.menuless_qaction):
+            a.changed.emit()
 
     def location_selected(self, loc):
         enabled = loc == 'library'
@@ -535,7 +538,7 @@ class ChooseLibraryAction(InterfaceAction):
 
         # from calibre.utils.mem import memory
         # import weakref
-        # from PyQt4.Qt import QTimer
+        # from PyQt5.Qt import QTimer
         # self.dbref = weakref.ref(self.gui.library_view.model().db)
         # self.before_mem = memory()
         self.gui.library_moved(loc, allow_rebuild=True)

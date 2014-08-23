@@ -211,7 +211,7 @@ class AddRemoveTest(BaseTest):
         'Test removal of books'
         cl = self.cloned_library
         cache = self.init_cache()
-        af, ae, at = self.assertFalse, self.assertEqual, self.assertTrue
+        af, ae = self.assertFalse, self.assertEqual
         authors = cache.fields['authors'].table
 
         # Delete a single book, with no formats and check cleaning
@@ -231,6 +231,8 @@ class AddRemoveTest(BaseTest):
         fmtpath = cache.format_abspath(1, 'FMT1')
         bookpath = os.path.dirname(fmtpath)
         authorpath = os.path.dirname(bookpath)
+        os.mkdir(os.path.join(authorpath, '.DS_Store'))
+        open(os.path.join(authorpath, 'Thumbs.db'), 'wb').close()
         item_id = {v:k for k, v in cache.fields['#series'].table.id_map.iteritems()}['My Series Two']
         cache.remove_books((1,), permanent=True)
         for x in (fmtpath, bookpath, authorpath):

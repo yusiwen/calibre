@@ -84,4 +84,9 @@ SHORTCUTS = {
         'Next occurrence': (['Ctrl+S'],
             _('Go to next occurrence of selected word')),
 
+        'Bookmark': (['Ctrl+B'],
+                     _('Bookmark the current location')),
+
+        'Reload': (['Ctrl+R', 'F5'],
+                     _('Reload the current book')),
 }

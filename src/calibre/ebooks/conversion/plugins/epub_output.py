@@ -152,7 +152,6 @@ class EPUBOutput(OutputFormatPlugin):
                 continue
             for u in XPath('//h:u')(root):
                 u.tag = 'span'
-                u.set('style', 'text-decoration:underline')
 
             seen_ids, seen_names = set(), set()
             for x in XPath('//*[@id or @name]')(root):
@@ -190,7 +189,7 @@ class EPUBOutput(OutputFormatPlugin):
         self.workaround_webkit_quirks()
         self.upshift_markup()
         from calibre.ebooks.oeb.transforms.rescale import RescaleImages
-        RescaleImages()(oeb, opts)
+        RescaleImages(check_colorspaces=True)(oeb, opts)
 
         from calibre.ebooks.oeb.transforms.split import Split
         split = Split(not self.opts.dont_split_on_page_breaks,
@@ -379,6 +378,9 @@ class EPUBOutput(OutputFormatPlugin):
                 for x in XPath('//h:a[@name]')(body):
                     if not x.get('id', False):
                         x.set('id', x.get('name'))
+                    # The delightful epubcheck has started complaining about <a> tags that
+                    # have name attributes.
+                    x.attrib.pop('name')
 
                 # Replace <br> that are children of <body> as ADE doesn't handle them
                 for br in XPath('./h:br')(body):
@@ -481,31 +483,15 @@ class EPUBOutput(OutputFormatPlugin):
         Perform toc link transforms to alleviate slow loading.
         '''
         from calibre.ebooks.oeb.base import urldefrag, XPath
+        from calibre.ebooks.oeb.polish.toc import item_at_top
 
         def frag_is_at_top(root, frag):
-            body = XPath('//h:body')(root)
-            if body:
-                body = body[0]
-            else:
-                return False
-            tree = body.getroottree()
             elem = XPath('//*[@id="%s" or @name="%s"]'%(frag, frag))(root)
             if elem:
                 elem = elem[0]
             else:
                 return False
-            path = tree.getpath(elem)
-            for el in body.iterdescendants():
-                epath = tree.getpath(el)
-                if epath == path:
-                    break
-                if el.text and el.text.strip():
-                    return False
-                if not path.startswith(epath):
-                    # Only check tail of non-parent elements
-                    if el.tail and el.tail.strip():
-                        return False
-            return True
+            return item_at_top(elem)
 
         def simplify_toc_entry(toc):
             if toc.href:

@@ -7,7 +7,7 @@ __docformat__ = 'restructuredtext en'
 
 import gc
 
-from PyQt4.Qt import Qt
+from PyQt5.Qt import Qt
 
 from calibre.gui2 import Dispatcher
 from calibre.gui2.tools import fetch_scheduled_recipe
@@ -75,7 +75,7 @@ class FetchNewsAction(InterfaceAction):
             if ids_to_delete:
                 self.gui.library_view.model().delete_books_by_id(ids_to_delete)
 
-        self.gui.library_view.model().reset()
+        self.gui.library_view.model().beginResetModel(), self.gui.library_view.model().endResetModel()
         sync = self.gui.news_to_be_synced
         sync.add(id)
         self.gui.news_to_be_synced = sync

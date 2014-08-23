@@ -3,7 +3,7 @@ __license__ = 'GPL 3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import os
+import os, re
 from itertools import cycle
 
 from calibre.customize.conversion import InputFormatPlugin, OptionRecommendation
@@ -11,17 +11,18 @@ from calibre.customize.conversion import InputFormatPlugin, OptionRecommendation
 ADOBE_OBFUSCATION =  'http://ns.adobe.com/pdf/enc#RC'
 IDPF_OBFUSCATION = 'http://www.idpf.org/2008/embedding'
 
-def decrypt_font(key, path, algorithm):
+def decrypt_font_data(key, data, algorithm):
     is_adobe = algorithm == ADOBE_OBFUSCATION
     crypt_len = 1024 if is_adobe else 1040
-    with open(path, 'rb') as f:
-        raw = f.read()
-    crypt = bytearray(raw[:crypt_len])
+    crypt = bytearray(data[:crypt_len])
     key = cycle(iter(bytearray(key)))
     decrypt = bytes(bytearray(x^key.next() for x in crypt))
-    with open(path, 'wb') as f:
-        f.write(decrypt)
-        f.write(raw[crypt_len:])
+    return decrypt + data[crypt_len:]
+
+def decrypt_font(key, path, algorithm):
+    with open(path, 'r+b') as f:
+        data = decrypt_font_data(key, f.read(), algorithm)
+        f.seek(0), f.truncate(), f.write(data)
 
 class EPUBInput(InputFormatPlugin):
 
@@ -36,9 +37,10 @@ class EPUBInput(InputFormatPlugin):
     def process_encryption(self, encfile, opf, log):
         from lxml import etree
         import uuid, hashlib
-        idpf_key = opf.unique_identifier
+        idpf_key = opf.raw_unique_identifier
         if idpf_key:
-            idpf_key = hashlib.sha1(idpf_key).digest()
+            idpf_key = re.sub(u'\u0020\u0009\u000d\u000a', u'', idpf_key)
+            idpf_key = hashlib.sha1(idpf_key.encode('utf-8')).digest()
         key = None
         for item in opf.identifier_iter():
             scheme = None
@@ -105,8 +107,15 @@ class EPUBInput(InputFormatPlugin):
         # Remove from spine as covers must be treated
         # specially
         if not self.for_viewer:
-            spine[0].getparent().remove(spine[0])
-            removed = guide_cover
+            if len(spine) == 1:
+                log.warn('There is only a single spine item and it is marked as the cover. Removing cover marking.')
+                for guide_elem in tuple(opf.iterguide()):
+                    if guide_elem.get('type', '').lower() == 'cover':
+                        guide_elem.getparent().remove(guide_elem)
+                return
+            else:
+                spine[0].getparent().remove(spine[0])
+                removed = guide_cover
         else:
             # Ensure the cover is displayed as the first item in the book, some
             # epub files have it set with linear='no' which causes the cover to

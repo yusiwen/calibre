@@ -7,7 +7,7 @@ import re, os
 from collections import namedtuple, defaultdict
 from threading import Thread
 
-from PyQt4.Qt import Qt, QDialog, QGridLayout, QVBoxLayout, QFont, QLabel, \
+from PyQt5.Qt import Qt, QDialog, QGridLayout, QVBoxLayout, QFont, QLabel, \
                      pyqtSignal, QDialogButtonBox, QInputDialog, QLineEdit, \
                      QDateTime, QCompleter
 
@@ -56,7 +56,7 @@ def get_cover_data(stream, ext):  # {{{
 
 Settings = namedtuple('Settings', 'remove_all remove add au aus do_aus rating pub do_series do_autonumber do_remove_format '
                       'remove_format do_swap_ta do_remove_conv do_auto_author series do_series_restart series_start_value '
-                      'do_title_case cover_action clear_series pubdate adddate do_title_sort languages clear_languages restore_original comments')
+                      'do_title_case cover_action clear_series clear_pub pubdate adddate do_title_sort languages clear_languages restore_original comments')
 null = object()
 
 class MyBlockingBusy(QDialog):  # {{{
@@ -239,6 +239,9 @@ class MyBlockingBusy(QDialog):  # {{{
         # Various fields
         if args.rating != -1:
             cache.set_field('rating', {bid:args.rating*2 for bid in self.ids})
+
+        if args.clear_pub:
+            cache.set_field('publisher', {bid:'' for bid in self.ids})
 
         if args.pub:
             cache.set_field('publisher', {bid:args.pub for bid in self.ids})
@@ -437,7 +440,7 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
             if (f in ['author_sort'] or
                     (fm[f]['datatype'] in ['text', 'series', 'enumeration', 'comments']
                      and fm[f].get('search_terms', None)
-                     and f not in ['formats', 'ondevice']) or
+                     and f not in ['formats', 'ondevice', 'series_sort']) or
                     (fm[f]['datatype'] in ['int', 'float', 'bool', 'datetime'] and
                      f not in ['id', 'timestamp'])):
                 self.all_fields.append(f)
@@ -566,12 +569,12 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
     def s_r_sf_itemdata(self, idx):
         if idx is None:
             idx = self.search_field.currentIndex()
-        return unicode(self.search_field.itemData(idx).toString())
+        return unicode(self.search_field.itemData(idx) or '')
 
     def s_r_df_itemdata(self, idx):
         if idx is None:
             idx = self.destination_field.currentIndex()
-        return unicode(self.destination_field.itemData(idx).toString())
+        return unicode(self.destination_field.itemData(idx) or '')
 
     def s_r_get_field(self, mi, field):
         if field:
@@ -582,6 +585,8 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
             fm = self.db.metadata_for_field(field)
             if field == 'sort':
                 val = mi.get('title_sort', None)
+            elif fm['datatype'] == 'datetime':
+                val = mi.format_field(field)[1]
             else:
                 val = mi.get(field, None)
             if isinstance(val, (int, float, bool)):
@@ -728,8 +733,10 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
             return ''
         dest = self.s_r_df_itemdata(None)
         if dest == '':
-            if self.db.metadata_for_field(src)['datatype'] == 'composite':
-                raise Exception(_('You must specify a destination when source is a composite field'))
+            if (src == '{template}' or
+                        self.db.metadata_for_field(src)['datatype'] == 'composite'):
+                raise Exception(_('You must specify a destination when source is '
+                                  'a composite field or a template'))
             dest = src
         dest_mode = self.replace_mode.currentIndex()
 
@@ -787,10 +794,13 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
         flags |= re.UNICODE
 
         try:
+            stext = unicode(self.search_for.text())
+            if not stext:
+                raise Exception(_('You must specify a search expression in the "Search for" field'))
             if self.search_mode.currentIndex() == 0:
-                self.s_r_obj = re.compile(re.escape(unicode(self.search_for.text())), flags)
+                self.s_r_obj = re.compile(re.escape(stext), flags)
             else:
-                self.s_r_obj = re.compile(unicode(self.search_for.text()), flags)
+                self.s_r_obj = re.compile(stext, flags)
         except Exception as e:
             self.s_r_obj = None
             self.s_r_error = e
@@ -933,8 +943,13 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
         self.save_state()
         if len(self.ids) < 1:
             return QDialog.accept(self)
+        try:
+            source = self.s_r_sf_itemdata(None)
+        except:
+            source = ''
+        do_sr = source and self.s_r_obj
 
-        if self.s_r_error is not None:
+        if self.s_r_error is not None and do_sr:
             error_dialog(self, _('Search/replace invalid'),
                     _('Search pattern is invalid: %s')%self.s_r_error.message,
                     show=True)
@@ -957,6 +972,7 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
         pub = unicode(self.publisher.text())
         do_series = self.write_series
         clear_series = self.clear_series.isChecked()
+        clear_pub = self.clear_pub.isChecked()
         series = unicode(self.series.currentText()).strip()
         do_autonumber = self.autonumber_series.isChecked()
         do_series_restart = self.series_numbering_restarts.isChecked()
@@ -992,12 +1008,10 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
         args = Settings(remove_all, remove, add, au, aus, do_aus, rating, pub, do_series,
                 do_autonumber, do_remove_format, remove_format, do_swap_ta,
                 do_remove_conv, do_auto_author, series, do_series_restart,
-                series_start_value, do_title_case, cover_action, clear_series,
+                series_start_value, do_title_case, cover_action, clear_series, clear_pub,
                 pubdate, adddate, do_title_sort, languages, clear_languages,
                 restore_original, self.comments)
 
-        source = self.s_r_sf_itemdata(None)
-        do_sr = source and self.s_r_obj
         self.set_field_calls = defaultdict(dict)
         bb = MyBlockingBusy(args, self.ids, self.db, self.refresh_books,
             getattr(self, 'custom_column_widgets', []),
@@ -1023,7 +1037,7 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
         return QDialog.accept(self)
 
     def series_changed(self, *args):
-        self.write_series = True
+        self.write_series = bool(unicode(self.series.currentText()).strip())
         self.autonumber_series.setEnabled(True)
 
     def s_r_remove_query(self, *args):

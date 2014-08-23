@@ -16,7 +16,7 @@ from calibre.utils.config_base import tweaks
 try:
     _author_pat = re.compile(tweaks['authors_split_regex'])
 except:
-    prints ('Author split regexp:', tweaks['authors_split_regex'],
+    prints('Author split regexp:', tweaks['authors_split_regex'],
             'is invalid, using default')
     _author_pat = re.compile(r'(?i),?\s+(and|with)\s+')
 
@@ -107,7 +107,10 @@ def get_title_sort_pat(lang=None):
             q = get_lang()
     q = canonicalize_lang(q) if q else q
     data = tweaks['per_language_title_sort_articles']
-    ans = data.get(q, None)
+    try:
+        ans = data.get(q, None)
+    except AttributeError:
+        ans = None  # invalid tweak value
     try:
         ans = frozenset(ans) if ans else frozenset(data['eng'])
     except:
@@ -150,7 +153,6 @@ coding = zip(
 )
 
 
-
 def roman(num):
     if num <= 0 or num >= 4000 or int(num) != num:
         return str(num)
@@ -174,6 +176,7 @@ def fmt_sidx(i, fmt='%.2f', use_roman=False):
     return fmt%i
 
 class Resource(object):
+
     '''
     Represents a resource (usually a file on the filesystem or a URL pointing
     to the web. Such resources are commonly referred to in OPF files.
@@ -217,7 +220,6 @@ class Resource(object):
                 self.path = os.path.abspath(os.path.join(basedir, pc.replace('/', os.sep)))
                 self.fragment = unquote(url[-1])
 
-
     def href(self, basedir=None):
         '''
         Return a URL pointing to this resource. If it is a file on the filesystem
@@ -240,7 +242,7 @@ class Resource(object):
             return ''+frag
         try:
             rpath = relpath(self.path, basedir)
-        except OSError: # On windows path and basedir could be on different drives
+        except OSError:  # On windows path and basedir could be on different drives
             rpath = self.path
         if isinstance(rpath, unicode):
             rpath = rpath.encode('utf-8')
@@ -308,7 +310,6 @@ class ResourceCollection(object):
             res.set_basedir(path)
 
 
-
 def MetaInformation(title, authors=(_('Unknown'),)):
     ''' Convenient encapsulation of book metadata, needed for compatibility
         @param title: title or ``_('Unknown')`` or a MetaInformation object
@@ -359,6 +360,20 @@ def check_isbn(isbn):
         return check_isbn13(isbn)
     return None
 
+def check_issn(issn):
+    if not issn:
+        return None
+    issn = re.sub(r'[^0-9X]', '', issn.upper())
+    try:
+        digits = map(int, issn[:7])
+        products = [(8 - i) * d for i, d in enumerate(digits)]
+        check = 11 - sum(products) % 11
+        if (check == 10 and issn[7] == 'X') or check == int(issn[7]):
+            return issn
+    except Exception:
+        pass
+    return None
+
 def format_isbn(isbn):
     cisbn = check_isbn(isbn)
     if not cisbn:
@@ -367,4 +382,13 @@ def format_isbn(isbn):
     if len(i) == 10:
         return '-'.join((i[:2], i[2:6], i[6:9], i[9]))
     return '-'.join((i[:3], i[3:5], i[5:9], i[9:12], i[12]))
+
+def check_doi(doi):
+    'Check if something that looks like a DOI is present anywhere in the string'
+    if not doi:
+        return None
+    doi_check = re.search(r'10\.\d{4}/\S+', doi)
+    if doi_check is not None:
+        return doi_check.group()
+    return None
 

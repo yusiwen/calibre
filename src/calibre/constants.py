@@ -4,7 +4,7 @@ __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal kovid@kovidgoyal.net'
 __docformat__ = 'restructuredtext en'
 __appname__   = u'calibre'
-numeric_version = (1, 8, 0)
+numeric_version = (2, 0, 0)
 __version__   = u'.'.join(map(unicode, numeric_version))
 __author__    = u"Kovid Goyal <kovid@kovidgoyal.net>"
 
@@ -135,10 +135,17 @@ class Plugins(collections.Mapping):
                 'chm_extra',
                 'icu',
                 'speedup',
+                'html',
                 'freetype',
                 'woff',
                 'unrar',
                 'qt_hack',
+                '_regex',
+                'hunspell',
+                '_patiencediff_c',
+                'bzzdec',
+                'matcher',
+                'tokenizer',
             ]
         if iswindows:
             plugins.extend(['winutil', 'wpd', 'winfonts'])
@@ -153,6 +160,10 @@ class Plugins(collections.Mapping):
         if name in self._plugins:
             return
         sys.path.insert(0, sys.extensions_location)
+        try:
+            del sys.modules[name]
+        except KeyError:
+            pass
         try:
             p, err = importlib.import_module(name), ''
         except Exception as err:
@@ -280,15 +291,10 @@ def get_windows_temp_path():
 def get_windows_user_locale_name():
     import ctypes
     k32 = ctypes.windll.kernel32
-    n = 200
+    n = 255
     buf = ctypes.create_unicode_buffer(u'\0'*n)
     n = k32.GetUserDefaultLocaleName(buf, n)
     if n == 0:
         return None
     return u'_'.join(buf.value.split(u'-')[:2])
-
-def is_modern_webkit():
-    # Check if we are using QtWebKit >= 2.3
-    from PyQt4.QtWebKit import qWebKitMajorVersion
-    return qWebKitMajorVersion() >= 537
 

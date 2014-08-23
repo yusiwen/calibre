@@ -4,34 +4,37 @@
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 import sys, os, re, textwrap
-
-sys.path.insert(0, os.path.abspath('../src'))
-sys.extensions_location = '../src/calibre/plugins'
-sys.resources_location  = '../resources'
+import init_calibre
+del init_calibre
 
 from sphinx.util.console import bold
 
 sys.path.append(os.path.abspath('../../../'))
-from calibre.linux import entry_points
+from calibre.linux import entry_points, cli_index_strings
 from epub import EPUBHelpBuilder
 from latex import LaTeXHelpBuilder
 
 def substitute(app, doctree):
     pass
 
-CLI_INDEX='''
-.. include:: ../global.rst
+def source_read_handler(app, docname, source):
+    source[0] = source[0].replace('/|lang|/', '/%s/' % app.config.language)
+    if docname == 'index':
+        # Sphinx does not call source_read_handle for the .. include directive
+        ss = [open('simple_index.rst', 'rb').read().decode('utf-8')]
+        source_read_handler(app, 'simple_index', ss)
+        source[0] = source[0].replace('.. include:: simple_index.rst', ss[0])
 
+CLI_INDEX='''
 .. _cli:
 
 Command Line Interface
 ==========================
 
-.. image:: ../images/cli.png
+.. image:: ../../images/cli.png
 
-On OS X you have to go to Preferences->Advanced->Miscellaneous and click install command line
-tools to make the command line tools available.  On other platforms, just start
-a terminal and type the command.
+.. note::
+    %s
 
 Documented Commands
 --------------------
@@ -46,16 +49,13 @@ Undocumented Commands
 
 {undocumented}
 
-You can see usage for undocumented commands by executing them without arguments
-in a terminal.
+%s
 '''
 
 CLI_PREAMBLE='''\
-.. include:: ../global.rst
-
 .. _{cmd}:
 
-{cmd}
+``{cmd}``
 ===================================================================
 
 .. code-block:: none
@@ -65,7 +65,7 @@ CLI_PREAMBLE='''\
 {usage}
 '''
 
-def generate_calibredb_help(preamble, info):
+def generate_calibredb_help(preamble, app):
     from calibre.library.cli import COMMANDS, get_parser
     import calibre.library.cli as cli
     preamble = preamble[:preamble.find('\n\n\n', preamble.find('code-block'))]
@@ -108,23 +108,15 @@ def generate_calibredb_help(preamble, info):
 
     toc = '\n'.join(toc)
     raw = preamble + '\n\n'+toc + '\n\n' + global_options+'\n\n'+'\n'.join(lines)
-    update_cli_doc(os.path.join('cli', 'calibredb.rst'), raw, info)
+    update_cli_doc('calibredb', raw, app)
 
-def generate_ebook_convert_help(preamble, info):
-    from calibre.ebooks.conversion.cli import create_option_parser
+def generate_ebook_convert_help(preamble, app):
+    from calibre.ebooks.conversion.cli import create_option_parser, manual_index_strings
     from calibre.customize.ui import input_format_plugins, output_format_plugins
     from calibre.utils.logging import default_log
     preamble = re.sub(r'http.*\.html', ':ref:`conversion`', preamble)
-    raw = preamble + textwrap.dedent('''
-    The options and default values for the options change depending on both the
-    input and output formats, so you should always check with::
 
-        ebook-convert myfile.input_format myfile.output_format -h
-
-    Below are the options that are common to all conversion, followed by the
-    options specific to every input and output format
-
-    ''')
+    raw = preamble + '\n\n' + manual_index_strings() % 'ebook-convert myfile.input_format myfile.output_format -h'
     parser, plumber = create_option_parser(['ebook-convert',
         'dummyi.mobi', 'dummyo.epub', '-h'], default_log)
     groups = [(None, None, parser.option_list)]
@@ -151,11 +143,12 @@ def generate_ebook_convert_help(preamble, info):
         prog = 'ebook-convert-'+(pl.name.lower().replace(' ', '-'))
         raw += '\n\n' + '\n'.join(render_options(prog, groups, False, True))
 
-    update_cli_doc(os.path.join('cli', 'ebook-convert.rst'), raw, info)
+    update_cli_doc('ebook-convert', raw, app)
 
-def update_cli_doc(path, raw, info):
+def update_cli_doc(name, raw, app):
     if isinstance(raw, unicode):
         raw = raw.encode('utf-8')
+    path = 'generated/%s/%s.rst' % (app.config.language, name)
     old_raw = open(path, 'rb').read() if os.path.exists(path) else ''
     if not os.path.exists(path) or old_raw != raw:
         import difflib
@@ -165,7 +158,10 @@ def update_cli_doc(path, raw, info):
                     path, path)
             for line in lines:
                 print line
-        info('creating '+os.path.splitext(os.path.basename(path))[0])
+        app.builder.info('creating '+os.path.splitext(os.path.basename(path))[0])
+        p = os.path.dirname(path)
+        if p and not os.path.exists(p):
+            os.makedirs(p)
         open(path, 'wb').write(raw)
 
 def render_options(cmd, groups, options_header=True, add_program=True):
@@ -184,10 +180,16 @@ def render_options(cmd, groups, options_header=True, add_program=True):
                 y.get_opt_string())):
             help = opt.help if opt.help else ''
             help = help.replace('\n', ' ').replace('*', '\\*').replace('%default', str(opt.default))
+            help = mark_options(help)
             opt = opt.get_opt_string() + ((', '+', '.join(opt._short_opts)) if opt._short_opts else '')
             opt = '.. cmdoption:: '+opt
             lines.extend([opt, '', '    '+help, ''])
     return lines
+
+def mark_options(raw):
+    raw = re.sub(r'(\s+)--(\s+)', r'\1``--``\2', raw)
+    raw = re.sub(r'(--[a-zA-Z0-9_=,-]+)', r':option:`\1`', raw)
+    return raw
 
 def cli_docs(app):
     info = app.builder.info
@@ -209,26 +211,26 @@ def cli_docs(app):
     documented_cmds.sort(cmp=lambda x, y: cmp(x[0], y[0]))
     undocumented_cmds.sort()
 
-    documented = [' '*4 + cmd[0] for cmd in documented_cmds]
-    undocumented = ['  * ' + cmd for cmd in undocumented_cmds]
+    documented = [' '*4 + c[0] for c in documented_cmds]
+    undocumented = ['  * ' + c for c in undocumented_cmds]
 
-    raw = CLI_INDEX.format(documented='\n'.join(documented),
+    raw = (CLI_INDEX % cli_index_strings()).format(documented='\n'.join(documented),
             undocumented='\n'.join(undocumented))
     if not os.path.exists('cli'):
         os.makedirs('cli')
-    update_cli_doc(os.path.join('cli', 'cli-index.rst'), raw, info)
+    update_cli_doc('cli-index', raw, app)
 
     for cmd, parser in documented_cmds:
-        usage = [i for i in parser.usage.replace('%prog', cmd).splitlines()]
+        usage = [mark_options(i) for i in parser.usage.replace('%prog', cmd).splitlines()]
         cmdline = usage[0]
         usage = usage[1:]
         usage = [i.replace(cmd, ':command:`%s`'%cmd) for i in usage]
         usage = '\n'.join(usage)
         preamble = CLI_PREAMBLE.format(cmd=cmd, cmdline=cmdline, usage=usage)
         if cmd == 'ebook-convert':
-            generate_ebook_convert_help(preamble, info)
+            generate_ebook_convert_help(preamble, app)
         elif cmd == 'calibredb':
-            generate_calibredb_help(preamble, info)
+            generate_calibredb_help(preamble, app)
         else:
             groups = [(None, None, parser.option_list)]
             for grp in parser.option_groups:
@@ -236,7 +238,7 @@ def cli_docs(app):
             raw = preamble
             lines = render_options(cmd, groups)
             raw += '\n'+'\n'.join(lines)
-            update_cli_doc(os.path.join('cli', cmd+'.rst'), raw, info)
+            update_cli_doc(cmd, raw, app)
 
 def generate_docs(app):
     cli_docs(app)
@@ -244,14 +246,13 @@ def generate_docs(app):
 
 def template_docs(app):
     from template_ref_generate import generate_template_language_help
-    info = app.builder.info
     raw = generate_template_language_help()
-    update_cli_doc('template_ref.rst', raw, info)
+    update_cli_doc('template_ref', raw, app)
 
 def setup(app):
-    app.add_config_value('kovid_epub_cover', None, False)
     app.add_builder(EPUBHelpBuilder)
     app.add_builder(LaTeXHelpBuilder)
+    app.connect('source-read', source_read_handler)
     app.connect('doctree-read', substitute)
     app.connect('builder-inited', generate_docs)
     app.connect('build-finished', finished)

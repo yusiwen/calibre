@@ -104,13 +104,46 @@ def option_recommendation_to_cli_option(add_option, rec):
 def group_titles():
     return _('INPUT OPTIONS'), _('OUTPUT OPTIONS')
 
+def recipe_test(option, opt_str, value, parser):
+    assert value is None
+    value = []
+
+    def floatable(str):
+        try:
+            float(str)
+            return True
+        except ValueError:
+            return False
+
+    for arg in parser.rargs:
+        # stop on --foo like options
+        if arg[:2] == "--":
+            break
+        # stop on -a, but not on -3 or -3.0
+        if arg[:1] == "-" and len(arg) > 1 and not floatable(arg):
+            break
+        try:
+            value.append(int(arg))
+        except (TypeError, ValueError, AttributeError):
+            break
+        if len(value) == 2:
+            break
+    del parser.rargs[:len(value)]
+
+    while len(value) < 2:
+        value.append(2)
+
+    setattr(parser.values, option.dest, tuple(value))
+
 def add_input_output_options(parser, plumber):
     input_options, output_options = \
                                 plumber.input_options, plumber.output_options
-
     def add_options(group, options):
         for opt in options:
-            option_recommendation_to_cli_option(group, opt)
+            if plumber.input_fmt == 'recipe' and opt.option.long_switch == 'test':
+                group(Option('--test', dest='test', action='callback', callback=recipe_test))
+            else:
+                option_recommendation_to_cli_option(group, opt)
 
     if input_options:
         title = group_titles()[0]
@@ -336,6 +369,17 @@ def main(args=sys.argv):
     log(_('Output saved to'), ' ', plumber.output)
 
     return 0
+
+def manual_index_strings():
+    return _('''\
+The options and default values for the options change depending on both the
+input and output formats, so you should always check with::
+
+    %s
+
+Below are the options that are common to all conversion, followed by the
+options specific to every input and output format.''')
+
 
 if __name__ == '__main__':
     sys.exit(main())

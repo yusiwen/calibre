@@ -11,7 +11,7 @@ from collections import OrderedDict, namedtuple
 from functools import partial
 from future_builtins import zip
 
-from PyQt4.Qt import (
+from PyQt5.Qt import (
     QDialog, QWidget, QGridLayout, QLineEdit, QLabel, QToolButton, QIcon,
     QVBoxLayout, QDialogButtonBox, QApplication, pyqtSignal, QFont, QPixmap,
     QSize, QPainter, Qt, QColor, QPen, QSizePolicy, QScrollArea, QFrame)
@@ -213,6 +213,7 @@ class CommentsEdit(Editor):
 
     def __init__(self, field, is_new, parent, metadata, extra):
         Editor.__init__(self, parent, one_line_toolbar=False)
+        self.set_minimum_height_for_editor(150)
         self.is_new = is_new
         self.field = field
         self.metadata = metadata
@@ -401,6 +402,14 @@ class CompareSingle(QWidget):
         self.sep2 = f = QFrame(self)
         f.setFrameShape(f.VLine)
         l.addWidget(f, 0, 4, row, 1)
+        if 'comments' in self.widgets and not gprefs.get('diff_widget_show_comments_controls', True):
+            self.widgets['comments'].new.hide_toolbars()
+
+    def save_comments_controls_state(self):
+        if 'comments' in self.widgets:
+            vis = self.widgets['comments'].new.toolbars_visible
+            if vis != gprefs.get('diff_widget_show_comments_controls', True):
+                gprefs.set('diff_widget_show_comments_controls', vis)
 
     def changed(self, field):
         w = self.widgets[field]
@@ -509,10 +518,12 @@ class CompareMany(QDialog):
 
     def accept(self):
         gprefs.set('diff_dialog_geom', bytearray(self.saveGeometry()))
+        self.compare_widget.save_comments_controls_state()
         super(CompareMany, self).accept()
 
     def reject(self):
         gprefs.set('diff_dialog_geom', bytearray(self.saveGeometry()))
+        self.compare_widget.save_comments_controls_state()
         super(CompareMany, self).reject()
 
     @property

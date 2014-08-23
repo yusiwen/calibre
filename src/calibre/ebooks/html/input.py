@@ -13,13 +13,14 @@ Input plugin for HTML or OPF ebooks.
 
 import os, re, sys,  errno as gerrno
 from urlparse import urlparse, urlunparse
-from urllib import unquote
 
+from calibre.ebooks.oeb.base import urlunquote
 from calibre.ebooks.chardet import detect_xml_encoding
 from calibre.constants import iswindows
 from calibre import unicode_path, as_unicode, replace_entities
 
 class Link(object):
+
     '''
     Represents a link in a HTML file.
     '''
@@ -32,7 +33,7 @@ class Link(object):
             path = path[1:]
             isabs = True
         path = urlunparse(('', '', path, url.params, url.query, ''))
-        path = unquote(path)
+        path = urlunquote(path)
         if isabs or os.path.isabs(path):
             return path
         return os.path.abspath(os.path.join(base, path))
@@ -49,7 +50,7 @@ class Link(object):
         self.is_local    = self.parsed_url.scheme in ('', 'file')
         self.is_internal = self.is_local and not bool(self.parsed_url.path)
         self.path        = None
-        self.fragment    = unquote(self.parsed_url.fragment)
+        self.fragment    = urlunquote(self.parsed_url.fragment)
         if self.is_local and not self.is_internal:
             self.path = self.url_to_local_path(self.parsed_url, base)
 
@@ -73,6 +74,7 @@ class IgnoreFile(Exception):
         self.errno = errno
 
 class HTMLFile(object):
+
     '''
     Contains basic information about an HTML file. This
     includes a list of links to other files as well as
@@ -103,8 +105,14 @@ class HTMLFile(object):
 
         try:
             with open(self.path, 'rb') as f:
-                src = f.read(4096)
-                self.is_binary = level > 0 and not bool(self.HTML_PAT.search(src))
+                src = header = f.read(4096)
+                encoding = detect_xml_encoding(src)[1]
+                if encoding:
+                    try:
+                        header = header.decode(encoding)
+                    except ValueError:
+                        pass
+                self.is_binary = level > 0 and not bool(self.HTML_PAT.search(header))
                 if not self.is_binary:
                     src += f.read()
         except IOError as err:
@@ -139,7 +147,6 @@ class HTMLFile(object):
     def __repr__(self):
         return str(self)
 
-
     def find_links(self, src):
         for match in self.LINK_PAT.finditer(src):
             url = None
@@ -167,7 +174,7 @@ def depth_first(root, flat, visited=set([])):
         if link.path is not None and link not in visited:
             try:
                 index = flat.index(link)
-            except ValueError: # Can happen if max_levels is used
+            except ValueError:  # Can happen if max_levels is used
                 continue
             hf = flat[index]
             if hf not in visited:
@@ -232,8 +239,7 @@ def get_filelist(htmlfile, dir, opts, log):
     log.info('Building file list...')
     filelist = traverse(htmlfile, max_levels=int(opts.max_levels),
                         verbose=opts.verbose,
-                        encoding=opts.input_encoding)\
-                [0 if opts.breadth_first else 1]
+                        encoding=opts.input_encoding)[0 if opts.breadth_first else 1]
     if opts.verbose:
         log.debug('\tFound files...')
         for f in filelist:

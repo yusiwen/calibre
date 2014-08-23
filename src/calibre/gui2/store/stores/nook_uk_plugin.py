@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import (unicode_literals, division, absolute_import, print_function)
-store_version = 2 # Needed for dynamic plugin loading
+store_version = 4  # Needed for dynamic plugin loading
 
 __license__ = 'GPL 3'
 __copyright__ = '2012, John Schember <john@nachtimwald.com>'
@@ -13,7 +13,7 @@ from contextlib import closing
 
 from lxml import html
 
-from PyQt4.Qt import QUrl
+from PyQt5.Qt import QUrl
 
 from calibre import browser, url_slash_cleaner
 from calibre.gui2 import open_url
@@ -25,8 +25,8 @@ from calibre.gui2.store.web_store_dialog import WebStoreDialog
 class NookUKStore(BasicStoreConfig, StorePlugin):
 
     def open(self, parent=None, detail_item=None, external=False):
-        url = 'http://www.awin1.com/awclick.php?mid=5266&id=120917'
-        detail_url = 'http://www.awin1.com/cread.php?awinmid=5266&awinaffid=120917&clickref=&p='
+        url = 'http://www.nook.com/gb/store'
+        detail_url = ''
 
         if external or self.config.get('open_external', False):
             if detail_item:
@@ -56,9 +56,12 @@ class NookUKStore(BasicStoreConfig, StorePlugin):
                 if counter <= 0:
                     break
 
-                id = ''.join(data.xpath('.//span[contains(@class, "image")]/a/@href'))
-                if not id:
+                id_ = ''.join(data.xpath('.//span[contains(@class, "image")]/a/@href'))
+                if not id_:
                     continue
+                if id_.startswith('/gb'):
+                    id_ = id_[3:]
+                id_ = 'http://uk.nook.com' + id_.strip()
 
                 cover_url = ''.join(data.xpath('.//span[contains(@class, "image")]//img/@data-src'))
 
@@ -68,7 +71,7 @@ class NookUKStore(BasicStoreConfig, StorePlugin):
 
                 author = ', '.join(data.xpath('.//div[contains(@class, "contributor")]//a/text()')).strip()
                 price = ''.join(data.xpath('.//div[contains(@class, "action")]//a//text()')).strip()
-                price = re.sub(r'[^\d.,£]', '', price);
+                price = re.sub(r'[^\d.,£]', '', price)
 
                 counter -= 1
 
@@ -77,7 +80,7 @@ class NookUKStore(BasicStoreConfig, StorePlugin):
                 s.title = title.strip()
                 s.author = author.strip()
                 s.price = price.strip()
-                s.detail_item = 'http://uk.nook.com/' + id.strip()
+                s.detail_item = id_
                 s.drm = SearchResult.DRM_UNKNOWN
                 s.formats = 'Nook'
 

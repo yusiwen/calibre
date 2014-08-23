@@ -8,15 +8,15 @@ __docformat__ = 'restructuredtext en'
 from threading import Thread
 from functools import partial
 
-from PyQt4.Qt import (
+from PyQt5.Qt import (
     QApplication, QFont, QFontInfo, QFontDialog, QColorDialog, QPainter,
     QAbstractListModel, Qt, QIcon, QKeySequence, QColor, pyqtSignal,
-    QWidget, QSizePolicy, QBrush, QPixmap, QSize, QPushButton)
+    QWidget, QSizePolicy, QBrush, QPixmap, QSize, QPushButton, QVBoxLayout)
 
 from calibre import human_readable
 from calibre.gui2.preferences import ConfigWidgetBase, test_widget, CommaSeparatedList
 from calibre.gui2.preferences.look_feel_ui import Ui_Form
-from calibre.gui2 import config, gprefs, qt_app, NONE, open_local_file, question_dialog
+from calibre.gui2 import config, gprefs, qt_app, open_local_file, question_dialog
 from calibre.utils.localization import (available_translations,
     get_language, get_lang)
 from calibre.utils.config import prefs
@@ -35,10 +35,11 @@ class DisplayedFields(QAbstractListModel):  # {{{
         self.changed = False
 
     def initialize(self, use_defaults=False):
+        self.beginResetModel()
         self.fields = [[x[0], x[1]] for x in
                 get_field_list(self.db.field_metadata,
                     use_defaults=use_defaults)]
-        self.reset()
+        self.endResetModel()
         self.changed = True
 
     def rowCount(self, *args):
@@ -48,7 +49,7 @@ class DisplayedFields(QAbstractListModel):  # {{{
         try:
             field, visible = self.fields[index.row()]
         except:
-            return NONE
+            return None
         if role == Qt.DisplayRole:
             name = field
             try:
@@ -62,7 +63,7 @@ class DisplayedFields(QAbstractListModel):  # {{{
             return Qt.Checked if visible else Qt.Unchecked
         if role == Qt.DecorationRole and field.startswith('#'):
             return QIcon(I('column.png'))
-        return NONE
+        return None
 
     def flags(self, index):
         ans = QAbstractListModel.flags(self, index)
@@ -71,12 +72,10 @@ class DisplayedFields(QAbstractListModel):  # {{{
     def setData(self, index, val, role):
         ret = False
         if role == Qt.CheckStateRole:
-            val, ok = val.toInt()
-            if ok:
-                self.fields[index.row()][1] = bool(val)
-                self.changed = True
-                ret = True
-                self.dataChanged.emit(index, index)
+            self.fields[index.row()][1] = bool(val)
+            self.changed = True
+            ret = True
+            self.dataChanged.emit(index, index)
         return ret
 
     def restore_defaults(self):
@@ -137,10 +136,8 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
 
         r = self.register
 
-        r('gui_layout', config, restart_required=True, choices=
-                [(_('Wide'), 'wide'), (_('Narrow'), 'narrow')])
-        r('ui_style', gprefs, restart_required=True, choices=
-                [(_('System default'), 'system'), (_('Calibre style'),
+        r('gui_layout', config, restart_required=True, choices=[(_('Wide'), 'wide'), (_('Narrow'), 'narrow')])
+        r('ui_style', gprefs, restart_required=True, choices=[(_('System default'), 'system'), (_('Calibre style'),
                     'calibre')])
         r('book_list_tooltips', gprefs)
         r('tag_browser_old_look', gprefs, restart_required=True)
@@ -155,7 +152,11 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
 
         r('cover_flow_queue_length', config, restart_required=True)
         r('cover_browser_reflections', gprefs)
-        r('extra_row_spacing', gprefs)
+        r('show_rating_in_cover_browser', gprefs)
+        r('emblem_size', gprefs)
+        r('emblem_position', gprefs, choices=[
+            (_('Left'), 'left'), (_('Top'), 'top'), (_('Right'), 'right'), (_('Bottom'), 'bottom')])
+        r('book_list_extra_row_spacing', gprefs)
 
         def get_esc_lang(l):
             if l == 'en':
@@ -183,6 +184,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         r('use_roman_numerals_for_series_number', config)
         r('separate_cover_flow', config, restart_required=True)
         r('cb_fullscreen', gprefs)
+        r('cb_preserve_aspect_ratio', gprefs)
 
         choices = [(_('Off'), 'off'), (_('Small'), 'small'),
             (_('Medium'), 'medium'), (_('Large'), 'large')]
@@ -199,6 +201,9 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         r('default_author_link', gprefs)
         r('tag_browser_dont_collapse', gprefs, setting=CommaSeparatedList)
 
+        self.search_library_for_author_button.clicked.connect(
+            lambda : self.opt_default_author_link.setText('search-calibre'))
+
         choices = set([k for k in db.field_metadata.all_field_keys()
                 if (db.field_metadata[k]['is_category'] and
                    (db.field_metadata[k]['datatype'] in ['text', 'series', 'enumeration']) and
@@ -211,6 +216,11 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.opt_categories_using_hierarchy.update_items_cache(choices)
         r('categories_using_hierarchy', db.prefs, setting=CommaSeparatedList,
           choices=sorted(list(choices), key=sort_key))
+
+        fm = db.field_metadata
+        choices = sorted(((fm[k]['name'], k) for k in fm.displayable_field_keys() if fm[k]['name']),
+                         key=lambda x:sort_key(x[0]))
+        r('field_under_covers_in_grid', db.prefs, choices=choices)
 
         self.current_font = self.initial_font = None
         self.change_font_button.clicked.connect(self.change_font)
@@ -231,6 +241,11 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.icon_rules.changed.connect(self.changed_signal)
         self.tabWidget.addTab(self.icon_rules,
                 QIcon(I('icon_choose.png')), _('Column icons'))
+
+        self.grid_rules = EditRules(self.emblems_tab)
+        self.grid_rules.changed.connect(self.changed_signal)
+        self.emblems_tab.setLayout(QVBoxLayout())
+        self.emblems_tab.layout().addWidget(self.grid_rules)
 
         self.tabWidget.setCurrentIndex(0)
         keys = [QKeySequence('F11', QKeySequence.PortableText), QKeySequence(
@@ -312,6 +327,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
             mi=None
         self.edit_rules.initialize(db.field_metadata, db.prefs, mi, 'column_color_rules')
         self.icon_rules.initialize(db.field_metadata, db.prefs, mi, 'column_icon_rules')
+        self.grid_rules.initialize(db.field_metadata, db.prefs, mi, 'cover_grid_icon_rules')
         self.set_cg_color(gprefs['cover_grid_color'])
         self.set_cg_texture(gprefs['cover_grid_texture'])
         self.update_aspect_ratio()
@@ -357,6 +373,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.display_model.restore_defaults()
         self.edit_rules.clear()
         self.icon_rules.clear()
+        self.grid_rules.clear()
         self.changed_signal.emit()
         self.set_cg_color(gprefs.defaults['cover_grid_color'])
         self.set_cg_texture(gprefs.defaults['cover_grid_texture'])
@@ -388,12 +405,9 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.changed_signal.emit()
 
     def build_font_obj(self):
-        font_info = self.current_font
-        if font_info is not None:
-            font = QFont(*(font_info[:4]))
-            font.setStretch(font_info[4])
-        else:
-            font = qt_app.original_font
+        font_info = qt_app.original_font if self.current_font is None else self.current_font
+        font = QFont(*(font_info[:4]))
+        font.setStretch(font_info[4])
         return font
 
     def update_font_display(self):
@@ -445,17 +459,20 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.display_model.commit()
         self.edit_rules.commit(self.gui.current_db.prefs)
         self.icon_rules.commit(self.gui.current_db.prefs)
+        self.grid_rules.commit(self.gui.current_db.prefs)
         gprefs['cover_grid_color'] = tuple(self.cg_bg_widget.bcol.getRgb())[:3]
         gprefs['cover_grid_texture'] = self.cg_bg_widget.btex
         return rr
 
     def refresh_gui(self, gui):
-        gui.library_view.model().reset()
+        m = gui.library_view.model()
+        m.beginResetModel(), m.endResetModel()
         self.update_font_display()
         gui.tags_view.reread_collapse_parameters()
         gui.library_view.refresh_book_details()
         if hasattr(gui.cover_flow, 'setShowReflections'):
             gui.cover_flow.setShowReflections(gprefs['cover_browser_reflections'])
+            gui.cover_flow.setPreserveAspectRatio(gprefs['cb_preserve_aspect_ratio'])
         gui.library_view.refresh_row_sizing()
         gui.grid_view.refresh_settings()
 

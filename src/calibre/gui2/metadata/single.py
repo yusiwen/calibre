@@ -10,7 +10,7 @@ __docformat__ = 'restructuredtext en'
 import os, errno
 from datetime import datetime
 
-from PyQt4.Qt import (Qt, QVBoxLayout, QHBoxLayout, QWidget, QPushButton,
+from PyQt5.Qt import (Qt, QVBoxLayout, QHBoxLayout, QWidget, QPushButton,
         QGridLayout, pyqtSignal, QDialogButtonBox, QScrollArea, QFont,
         QTabWidget, QIcon, QToolButton, QSplitter, QGroupBox, QSpacerItem,
         QSizePolicy, QFrame, QSize, QKeySequence, QMenu, QShortcut)
@@ -27,6 +27,7 @@ from calibre.utils.config import tweaks
 from calibre.ebooks.metadata.book.base import Metadata
 from calibre.utils.localization import canonicalize_lang
 from calibre.utils.date import local_tz
+from calibre.library.comments import merge_comments as merge_two_comments
 
 BASE_TITLE = _('Edit Metadata')
 
@@ -298,8 +299,7 @@ class MetadataSingleDialogBase(ResizableDialog):
             title = title[:50] + u'\u2026'
         self.setWindowTitle(BASE_TITLE + ' - ' +
                 title + ' - ' +
-                _(' [%(num)d of %(tot)d]')%dict(num=
-                    self.current_row+1,
+                _(' [%(num)d of %(tot)d]')%dict(num=self.current_row+1,
                 tot=len(self.row_list)))
 
     def swap_title_author(self, *args):
@@ -372,7 +372,7 @@ class MetadataSingleDialogBase(ResizableDialog):
                          show=True)
             return
 
-    def update_from_mi(self, mi, update_sorts=True, merge_tags=True):
+    def update_from_mi(self, mi, update_sorts=True, merge_tags=True, merge_comments=False):
         if not mi.is_null('title'):
             self.title.current_val = mi.title
             if update_sorts:
@@ -415,7 +415,12 @@ class MetadataSingleDialogBase(ResizableDialog):
             if langs:
                 self.languages.current_val = langs
         if mi.comments and mi.comments.strip():
-            self.comments.current_val = mi.comments
+            val = mi.comments
+            if val and merge_comments:
+                cval = self.comments.current_val
+                if cval:
+                    val = merge_two_comments(cval, val)
+            self.comments.current_val = val
 
     def fetch_metadata(self, *args):
         d = FullFetch(self.cover.pixmap(), self)
@@ -437,7 +442,7 @@ class MetadataSingleDialogBase(ResizableDialog):
                     # update_from_mi from changing the pubdate
                     mi.pubdate = datetime(pd.year, pd.month, pd.day,
                             tzinfo=local_tz)
-                self.update_from_mi(mi)
+                self.update_from_mi(mi, merge_comments=msprefs['append_comments'])
             if d.cover_pixmap is not None:
                 self.cover.current_val = pixmap_to_data(d.cover_pixmap)
 
@@ -466,10 +471,13 @@ class MetadataSingleDialogBase(ResizableDialog):
             return True
         for widget in self.basic_metadata_widgets:
             try:
-                if not widget.commit(self.db, self.book_id):
-                    return False
-                self.books_to_refresh |= getattr(widget, 'books_to_refresh',
-                        set([]))
+                if hasattr(widget, 'validate_for_commit'):
+                    title, msg, det_msg = widget.validate_for_commit()
+                    if title is not None:
+                        error_dialog(self, title, msg, det_msg=det_msg, show=True)
+                        return False
+                widget.commit(self.db, self.book_id)
+                self.books_to_refresh |= getattr(widget, 'books_to_refresh', set())
             except (IOError, OSError) as err:
                 if getattr(err, 'errno', None) == errno.EACCES:  # Permission denied
                     import traceback
@@ -1030,8 +1038,8 @@ def edit_metadata(db, row_list, current_row, parent=None, view_slot=None,
 if __name__ == '__main__':
     from calibre.gui2 import Application as QApplication
     app = QApplication([])
-    from calibre.library import db as db_
-    db = db_()
+    from calibre.library import db
+    db = db()
     row_list = list(range(len(db.data)))
     edit_metadata(db, row_list, 0)
 

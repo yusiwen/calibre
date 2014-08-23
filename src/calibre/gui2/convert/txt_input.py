@@ -4,7 +4,7 @@ __license__ = 'GPL 3'
 __copyright__ = '2009, John Schember <john@nachtimwald.com>'
 __docformat__ = 'restructuredtext en'
 
-from PyQt4.Qt import QListWidgetItem, Qt
+from PyQt5.Qt import QListWidgetItem, Qt
 
 from calibre.gui2.convert.txt_input_ui import Ui_Form
 from calibre.gui2.convert import Widget
@@ -52,7 +52,7 @@ class PluginWidget(Widget, Ui_Form):
     def get_value_handler(self, g):
         if g is not self.opt_markdown_extensions:
             return Widget.get_value_handler(self, g)
-        return ', '.join(unicode(i.data(Qt.UserRole).toString()) for i in self.md_map.itervalues() if i.checkState())
+        return ', '.join(unicode(i.data(Qt.UserRole) or '') for i in self.md_map.itervalues() if i.checkState())
 
     def connect_gui_obj_handler(self, g, f):
         if g is not self.opt_markdown_extensions:

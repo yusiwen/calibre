@@ -6,17 +6,12 @@ from __future__ import with_statement
 __license__   = 'GPL v3'
 __copyright__ = '2008, Marshall T. Vandegrift <llasram@gmail.com>'
 
-import os
+import os, re
 from urlparse import urldefrag
+
 from lxml import etree
-from PyQt4.QtCore import Qt
-from PyQt4.QtCore import QByteArray
-from PyQt4.QtCore import QBuffer
-from PyQt4.QtCore import QIODevice
-from PyQt4.QtGui import QColor
-from PyQt4.QtGui import QImage
-from PyQt4.QtGui import QPainter
-from PyQt4.QtSvg import QSvgRenderer
+from PyQt5.Qt import (
+    Qt, QByteArray, QBuffer, QIODevice, QColor, QImage, QPainter, QSvgRenderer)
 from calibre.ebooks.oeb.base import XHTML, XLINK
 from calibre.ebooks.oeb.base import SVG_MIME, PNG_MIME
 from calibre.ebooks.oeb.base import xml2str, xpath
@@ -33,9 +28,8 @@ class Unavailable(Exception):
 
 class SVGRasterizer(object):
     def __init__(self):
-        from calibre.gui2 import is_ok_to_use_qt
-        if not is_ok_to_use_qt():
-            raise Unavailable('Not OK to use Qt')
+        from calibre.gui2 import must_use_qt
+        must_use_qt()
 
     @classmethod
     def config(cls, cfg):
@@ -68,17 +62,21 @@ class SVGRasterizer(object):
         logger = self.oeb.logger
 
         if view_box is not None:
-            box = [float(x) for x in view_box.split()]
-            sizes = [box[2]-box[0], box[3] - box[1]]
-            for image in elem.xpath('descendant::*[local-name()="image" and '
-                    '@height and contains(@height, "%")]'):
-                logger.info('Found SVG image height in %, trying to convert...')
-                try:
-                    h = float(image.get('height').replace('%', ''))/100.
-                    image.set('height', str(h*sizes[1]))
-                except:
-                    logger.exception('Failed to convert percentage height:',
-                            image.get('height'))
+            try:
+                box = [float(x) for x in filter(None, re.split('[, ]', view_box))]
+                sizes = [box[2]-box[0], box[3] - box[1]]
+            except (TypeError, ValueError, IndexError):
+                logger.warn('SVG image has invalid viewBox="%s", ignoring the viewBox' % view_box)
+            else:
+                for image in elem.xpath('descendant::*[local-name()="image" and '
+                        '@height and contains(@height, "%")]'):
+                    logger.info('Found SVG image height in %, trying to convert...')
+                    try:
+                        h = float(image.get('height').replace('%', ''))/100.
+                        image.set('height', str(h*sizes[1]))
+                    except:
+                        logger.exception('Failed to convert percentage height:',
+                                image.get('height'))
 
         data = QByteArray(xml2str(elem, with_tail=False))
         svg = QSvgRenderer(data)

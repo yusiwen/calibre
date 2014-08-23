@@ -9,14 +9,13 @@ __docformat__ = 'restructuredtext en'
 import textwrap, codecs, importlib
 from functools import partial
 
-from PyQt4.Qt import (QWidget, QSpinBox, QDoubleSpinBox, QLineEdit, QTextEdit,
+from PyQt5.Qt import (QWidget, QSpinBox, QDoubleSpinBox, QLineEdit, QTextEdit,
     QCheckBox, QComboBox, Qt, QIcon, pyqtSignal, QLabel, QFontComboBox, QFont,
     QFontInfo)
 
 from calibre.customize.conversion import OptionRecommendation
-from calibre.ebooks.conversion.config import load_defaults, \
-        save_defaults as save_defaults_, \
-    load_specifics, GuiRecommendations
+from calibre.ebooks.conversion.config import (
+    load_defaults, save_defaults as save_defaults_, load_specifics, GuiRecommendations)
 from calibre import prepare_string_for_xml
 from calibre.customize.ui import plugin_for_input_format
 from calibre.gui2.font_family_chooser import FontFamilyChooser
@@ -27,7 +26,14 @@ def config_widget_for_input_plugin(plugin):
         return importlib.import_module(
                 'calibre.gui2.convert.'+name).PluginWidget
     except ImportError:
-        pass
+        # If this is not a builtin plugin, we have to import it differently
+        try:
+            ans = importlib.import_module(plugin.__module__+'.'+name).PluginWidget
+        except (ImportError, AttributeError, TypeError):
+            pass
+        else:
+            if issubclass(ans, Widget):
+                return ans
 
 def bulk_defaults_for_input_format(fmt):
     plugin = plugin_for_input_format(fmt)
@@ -48,7 +54,7 @@ class Widget(QWidget):
     STRIP_TEXT_FIELDS = True
 
     changed_signal = pyqtSignal()
-    set_help = pyqtSignal(object)
+    set_help_signal = pyqtSignal(object)
 
     def __init__(self, parent, options):
         QWidget.__init__(self, parent)
@@ -97,7 +103,6 @@ class Widget(QWidget):
                     process_child(g)
         process_child(self)
 
-
     def restore_defaults(self, get_option):
         defaults = GuiRecommendations()
         defaults.merge_recommendations(get_option, OptionRecommendation.LOW,
@@ -114,14 +119,16 @@ class Widget(QWidget):
         recs = GuiRecommendations()
         for name in self._options:
             gui_opt = getattr(self, 'opt_'+name, None)
-            if gui_opt is None: continue
+            if gui_opt is None:
+                continue
             recs[name] = self.get_value(gui_opt)
         return recs
 
     def apply_recommendations(self, recs):
         for name, val in recs.items():
             gui_opt = getattr(self, 'opt_'+name, None)
-            if gui_opt is None: continue
+            if gui_opt is None:
+                continue
             self.set_value(gui_opt, val)
             if name in getattr(recs, 'disabled_options', []):
                 gui_opt.setDisabled(True)
@@ -208,7 +215,8 @@ class Widget(QWidget):
         if isinstance(g, (QSpinBox, QDoubleSpinBox)):
             g.setValue(val)
         elif isinstance(g, (QLineEdit, QTextEdit)):
-            if not val: val = ''
+            if not val:
+                val = ''
             getattr(g, 'setPlainText', g.setText)(val)
             getattr(g, 'setCursorPosition', lambda x: x)(0)
         elif isinstance(g, QFontComboBox):
@@ -238,7 +246,7 @@ class Widget(QWidget):
     def set_help(self, msg):
         if msg and getattr(msg, 'strip', lambda:True)():
             try:
-                self.set_help.emit(msg)
+                self.set_help_signal.emit(msg)
             except:
                 pass
 
@@ -248,8 +256,10 @@ class Widget(QWidget):
             if g is None:
                 continue
             help = help_provider(name)
-            if not help: continue
-            if self.setup_help_handler(g, help): continue
+            if not help:
+                continue
+            if self.setup_help_handler(g, help):
+                continue
             g._help = help
             self.setup_widget_help(g)
 
@@ -259,7 +269,6 @@ class Widget(QWidget):
         g.setToolTip(htext)
         g.setWhatsThis(htext)
         g.__class__.enterEvent = lambda obj, event: self.set_help(getattr(obj, '_help', obj.toolTip()))
-
 
     def set_value_handler(self, g, val):
         'Return True iff you handle setting the value for g'

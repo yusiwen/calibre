@@ -15,6 +15,7 @@ from calibre import fsync
 from calibre.constants import isunix
 from calibre.devices.usbms.driver import USBMS
 import calibre.devices.cybook.t2b as t2b
+import calibre.devices.cybook.t4b as t4b
 
 class CYBOOK(USBMS):
 
@@ -61,11 +62,13 @@ class CYBOOK(USBMS):
 
 class ORIZON(CYBOOK):
 
-    name           = 'Orizon Device Interface'
+    name           = 'Cybook Orizon Device Interface'
     gui_name       = 'Orizon'
     description    = _('Communicate with the Cybook Orizon eBook reader.')
 
     BCD         = [0x319]
+
+    FORMATS     = ['epub', 'html', 'pdf', 'rtf', 'txt']
 
     VENDOR_NAME = ['BOOKEEN', 'LINUX']
     WINDOWS_MAIN_MEM = re.compile(r'(CYBOOK_ORIZON__-FD)|(FILE-STOR_GADGET)')
@@ -73,9 +76,38 @@ class ORIZON(CYBOOK):
 
     EBOOK_DIR_MAIN = EBOOK_DIR_CARD_A = 'Digital Editions'
 
+    EXTRA_CUSTOMIZATION_MESSAGE = [
+        _('Card A folder') + ':::<p>' +
+            _('Enter the folder where the books are to be stored when sent to the '
+              'memory card. This folder is prepended to any send to device template') + '</p>',
+    ]
+    EXTRA_CUSTOMIZATION_DEFAULT = [EBOOK_DIR_CARD_A]
+
+    def upload_cover(self, path, filename, metadata, filepath):
+        coverdata = getattr(metadata, 'thumbnail', None)
+        if coverdata and coverdata[2]:
+            coverdata = coverdata[2]
+        else:
+            coverdata = None
+        with open('%s.thn' % filepath, 'wb') as thnfile:
+            t4b.write_t4b(thnfile, coverdata)
+            fsync(thnfile)
+
+    def post_open_callback(self):
+        opts = self.settings()
+        folder = opts.extra_customization[0]
+        if not folder:
+            folder = ''
+        self.EBOOK_DIR_CARD_A = folder
+
     @classmethod
     def can_handle(cls, device_info, debug=False):
         if isunix:
             return device_info[3] == 'Bookeen' and device_info[4] == 'Cybook Orizon'
         return True
+
+    def get_carda_ebook_dir(self, for_upload=False):
+        if not for_upload:
+            return ''
+        return self.EBOOK_DIR_CARD_A
 

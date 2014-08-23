@@ -12,6 +12,7 @@ import os, sys
 from calibre import prints, as_unicode
 from calibre.ebooks.oeb.base import OEB_STYLES, OEB_DOCS, XPath
 from calibre.ebooks.oeb.polish.container import OEB_FONTS
+from calibre.ebooks.oeb.polish.utils import guess_type
 from calibre.utils.fonts.sfnt.subset import subset
 from calibre.utils.fonts.sfnt.errors import UnsupportedFont
 from calibre.utils.fonts.utils import get_font_names
@@ -34,16 +35,18 @@ def remove_font_face_rules(container, sheet, remove_names, base):
 def subset_all_fonts(container, font_stats, report):
     remove = set()
     total_old = total_new = 0
+    changed = False
     for name, mt in container.mime_map.iteritems():
-        if mt in OEB_FONTS or name.rpartition('.')[-1].lower() in {'otf', 'ttf'}:
+        if (mt in OEB_FONTS or name.rpartition('.')[-1].lower() in {'otf', 'ttf'}) and mt != guess_type('a.woff'):
             chars = font_stats.get(name, set())
-            path = container.name_path_map[name]
-            total_old += os.path.getsize(path)
+            with container.open(name, 'rb') as f:
+                f.seek(0, os.SEEK_END)
+                total_old += f.tell()
             if not chars:
                 remove.add(name)
                 report('Removed unused font: %s'%name)
                 continue
-            with open(path, 'r+b') as f:
+            with container.open(name, 'r+b') as f:
                 raw = f.read()
                 font_name = get_font_names(raw)[-1]
                 warnings = []
@@ -67,10 +70,12 @@ def subset_all_fonts(container, font_stats, report):
                 else:
                     report('Decreased the font %s to %.1f%% of its original size'%
                        (font_name, nlen/olen * 100))
+                    changed = True
                 f.seek(0), f.truncate(), f.write(nraw)
 
     for name in remove:
         container.remove_item(name)
+        changed = True
 
     if remove:
         for name, mt in container.mime_map.iteritems():
@@ -90,6 +95,7 @@ def subset_all_fonts(container, font_stats, report):
             total_new/total_old*100))
     else:
         report('No embedded fonts found')
+    return changed
 
 if __name__ == '__main__':
     from calibre.ebooks.oeb.polish.container import get_container

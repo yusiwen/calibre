@@ -17,12 +17,12 @@ from calibre.ebooks.mobi.reader.index import (parse_index_record,
         parse_tagx_section)
 from calibre.ebooks.mobi.utils import (decode_hex_number, decint,
         decode_tbs, read_font_record)
-from calibre.utils.magick.draw import identify_data
+from calibre.utils.imghdr import what
 from calibre.ebooks.mobi.debug import format_bytes
 from calibre.ebooks.mobi.debug.headers import TextRecord
 
 
-class TagX(object): # {{{
+class TagX(object):  # {{{
 
     def __init__(self, tag, num_values, bitmask, eof):
         self.tag, self.num_values, self.bitmask, self.eof = (tag, num_values,
@@ -36,12 +36,12 @@ class TagX(object): # {{{
                 self.num_values, bin(self.bitmask), self.eof)
     # }}}
 
-class SecondaryIndexHeader(object): # {{{
+class SecondaryIndexHeader(object):  # {{{
 
     def __init__(self, record):
         self.record = record
         raw = self.record.raw
-        #open('/t/index_header.bin', 'wb').write(raw)
+        # open('/t/index_header.bin', 'wb').write(raw)
         if raw[:4] != b'INDX':
             raise ValueError('Invalid Secondary Index Record')
         self.header_length, = struct.unpack('>I', raw[4:8])
@@ -95,13 +95,12 @@ class SecondaryIndexHeader(object): # {{{
         if idxt[6:].replace(b'\0', b''):
             raise ValueError('Non null trailing bytes after IDXT')
 
-
     def __str__(self):
         ans = ['*'*20 + ' Secondary Index Header '+ '*'*20]
         a = ans.append
         def u(w):
             a('Unknown: %r (%d bytes) (All zeros: %r)'%(w,
-                len(w), not bool(w.replace(b'\0', b'')) ))
+                len(w), not bool(w.replace(b'\0', b''))))
 
         a('Header length: %d'%self.header_length)
         u(self.unknown1)
@@ -132,12 +131,12 @@ class SecondaryIndexHeader(object): # {{{
 
 # }}}
 
-class IndexHeader(object): # {{{
+class IndexHeader(object):  # {{{
 
     def __init__(self, record):
         self.record = record
         raw = self.record.raw
-        #open('/t/index_header.bin', 'wb').write(raw)
+        # open('/t/index_header.bin', 'wb').write(raw)
         if raw[:4] != b'INDX':
             raise ValueError('Invalid Primary Index Record')
 
@@ -193,16 +192,15 @@ class IndexHeader(object): # {{{
         length_check, = struct.unpack(b'>H', idxt[4:6])
         if length_check != self.header_length + self.tagx_header_length:
             raise ValueError('Length check failed')
-        if idxt[6:].replace(b'\0', b''):
-            raise ValueError('Non null trailing bytes after IDXT')
-
+        # if idxt[6:].replace(b'\0', b''):
+        #     raise ValueError('Non null trailing bytes after IDXT')
 
     def __str__(self):
         ans = ['*'*20 + ' Index Header (%d bytes)'%len(self.record.raw)+ '*'*20]
         a = ans.append
         def u(w):
             a('Unknown: %r (%d bytes) (All zeros: %r)'%(w,
-                len(w), not bool(w.replace(b'\0', b'')) ))
+                len(w), not bool(w.replace(b'\0', b''))))
 
         a('Header length: %d'%self.header_length)
         u(self.unknown1)
@@ -233,7 +231,7 @@ class IndexHeader(object): # {{{
         return '\n'.join(ans)
     # }}}
 
-class Tag(object): # {{{
+class Tag(object):  # {{{
 
     '''
     Index entries are a collection of tags. Each tag is represented by this
@@ -287,7 +285,7 @@ class Tag(object): # {{{
 
 # }}}
 
-class IndexEntry(object): # {{{
+class IndexEntry(object):  # {{{
 
     '''
     The index is made up of entries, each of which is represented by an
@@ -373,7 +371,7 @@ class IndexEntry(object): # {{{
 
 # }}}
 
-class IndexRecord(object): # {{{
+class IndexRecord(object):  # {{{
 
     '''
     Represents all indexing information in the MOBI, apart from indexing info
@@ -413,7 +411,7 @@ class IndexRecord(object): # {{{
         a = ans.append
         def u(w):
             a('Unknown: %r (%d bytes) (All zeros: %r)'%(w,
-                len(w), not bool(w.replace(b'\0', b'')) ))
+                len(w), not bool(w.replace(b'\0', b''))))
         for entry in self.indices:
             offset = entry.offset
             a(str(entry))
@@ -431,7 +429,7 @@ class IndexRecord(object): # {{{
 
 # }}}
 
-class CNCX(object): # {{{
+class CNCX(object):  # {{{
 
     '''
     Parses the records that contain the compiled NCX (all strings from the
@@ -473,7 +471,7 @@ class CNCX(object): # {{{
 
 # }}}
 
-class ImageRecord(object): # {{{
+class ImageRecord(object):  # {{{
 
     def __init__(self, idx, record, fmt):
         self.raw = record.raw
@@ -487,14 +485,14 @@ class ImageRecord(object): # {{{
 
 # }}}
 
-class BinaryRecord(object): # {{{
+class BinaryRecord(object):  # {{{
 
     def __init__(self, idx, record):
         self.raw = record.raw
         sig = self.raw[:4]
         name = '%06d'%idx
         if sig in {b'FCIS', b'FLIS', b'SRCS', b'DATP', b'RESC', b'BOUN',
-                b'FDST', b'AUDI', b'VIDE',}:
+                b'FDST', b'AUDI', b'VIDE', b'CRES', b'CONT', b'CMET'}:
             name += '-' + sig.decode('ascii')
         elif sig == b'\xe9\x8e\r\n':
             name += '-' + 'EOF'
@@ -506,7 +504,7 @@ class BinaryRecord(object): # {{{
 
 # }}}
 
-class FontRecord(object): # {{{
+class FontRecord(object):  # {{{
 
     def __init__(self, idx, record):
         self.raw = record.raw
@@ -525,7 +523,7 @@ class FontRecord(object): # {{{
 
 # }}}
 
-class TBSIndexing(object): # {{{
+class TBSIndexing(object):  # {{{
 
     def __init__(self, text_records, indices, doc_type):
         self.record_indices = OrderedDict()
@@ -555,7 +553,8 @@ class TBSIndexing(object): # {{{
 
     def get_index(self, idx):
         for i in self.indices:
-            if i.index in {idx, unicode(idx)}: return i
+            if i.index in {idx, unicode(idx)}:
+                return i
         raise IndexError('Index %d not found'%idx)
 
     def __str__(self):
@@ -568,7 +567,8 @@ class TBSIndexing(object): # {{{
         types = defaultdict(list)
         for r, dat in self.record_indices.iteritems():
             tbs_type, strings = self.dump_record(r, dat)
-            if tbs_type == 0: continue
+            if tbs_type == 0:
+                continue
             types[tbs_type] += strings
         for typ, strings in types.iteritems():
             with open(os.path.join(bdir, 'tbs_type_%d.txt'%typ), 'wb') as f:
@@ -608,7 +608,7 @@ class TBSIndexing(object): # {{{
             ans.append('\nTBS: %d (%s)'%(tbs_type, bin4(tbs_type)))
             ans.append('Outermost index: %d'%outermost_index)
             ans.append('Unknown extra start bytes: %s'%repr_extra(extra))
-            if is_periodical: # Hierarchical periodical
+            if is_periodical:  # Hierarchical periodical
                 try:
                     byts, a = self.interpret_periodical(tbs_type, byts,
                         dat['geom'][0])
@@ -628,7 +628,7 @@ class TBSIndexing(object): # {{{
     def interpret_periodical(self, tbs_type, byts, record_offset):
         ans = []
 
-        def read_section_transitions(byts, psi=None): # {{{
+        def read_section_transitions(byts, psi=None):  # {{{
             if psi is None:
                 # Assume previous section is 1
                 psi = self.get_index(1)
@@ -676,7 +676,7 @@ class TBSIndexing(object): # {{{
             return byts
         # }}}
 
-        def read_starting_section(byts): # {{{
+        def read_starting_section(byts):  # {{{
             orig = byts
             si, extra, consumed = decode_tbs(byts)
             byts = byts[consumed:]
@@ -712,7 +712,7 @@ class TBSIndexing(object): # {{{
 
 # }}}
 
-class MOBIFile(object): # {{{
+class MOBIFile(object):  # {{{
 
     def __init__(self, mf):
         for x in ('raw', 'palmdb', 'record_headers', 'records', 'mobi_header',
@@ -742,19 +742,15 @@ class MOBIFile(object): # {{{
                     self.records[sir+1:sir+1+numi], self.secondary_index_header, self.cncx)
             self.indexing_record_nums |= set(xrange(sir+1, sir+1+numi))
 
-
         ntr = self.mobi_header.number_of_text_records
-        fntbr = self.mobi_header.first_non_book_record
         fii = self.mobi_header.first_image_index
-        if fntbr == NULL_INDEX:
-            fntbr = len(self.records)
         self.text_records = [TextRecord(r, self.records[r],
             self.mobi_header.extra_data_flags, mf.decompress6) for r in xrange(1,
             min(len(self.records), ntr+1))]
         self.image_records, self.binary_records = [], []
         self.font_records = []
         image_index = 0
-        for i in xrange(fntbr, len(self.records)):
+        for i in xrange(self.mobi_header.first_resource_record, min(self.mobi_header.last_resource_record, len(self.records))):
             if i in self.indexing_record_nums or i in self.huffman_record_nums:
                 continue
             image_index += 1
@@ -762,9 +758,9 @@ class MOBIFile(object): # {{{
             fmt = None
             if i >= fii and r.raw[:4] not in {b'FLIS', b'FCIS', b'SRCS',
                     b'\xe9\x8e\r\n', b'RESC', b'BOUN', b'FDST', b'DATP',
-                    b'AUDI', b'VIDE', b'FONT'}:
+                    b'AUDI', b'VIDE', b'FONT', b'CRES', b'CONT', b'CMET'}:
                 try:
-                    width, height, fmt = identify_data(r.raw)
+                    fmt = what(None, r.raw)
                 except:
                     pass
             if fmt is not None:
@@ -831,7 +827,6 @@ def inspect_mobi(mobi_file, ddir):
         os.mkdir(tdir)
         for rec in getattr(f, attr):
             rec.dump(tdir)
-
 
 
 # }}}

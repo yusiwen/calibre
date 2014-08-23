@@ -1002,6 +1002,8 @@ initwinutil(void) {
     );
     if (m == NULL) return;
     DriveError = PyErr_NewException("winutil.DriveError", NULL, NULL);
+    if (DriveError == NULL) return;
+    PyModule_AddObject(m, "DriveError", DriveError);
 
     PyModule_AddIntConstant(m, "CSIDL_ADMINTOOLS", CSIDL_ADMINTOOLS);
     PyModule_AddIntConstant(m, "CSIDL_APPDATA", CSIDL_APPDATA);
@@ -1021,6 +1023,7 @@ initwinutil(void) {
     PyModule_AddIntConstant(m, "CSIDL_PROGRAM_FILES_COMMON", CSIDL_PROGRAM_FILES_COMMON);
     PyModule_AddIntConstant(m, "CSIDL_SYSTEM", CSIDL_SYSTEM);
     PyModule_AddIntConstant(m, "CSIDL_WINDOWS", CSIDL_WINDOWS);
+    PyModule_AddIntConstant(m, "CSIDL_PROFILE", CSIDL_PROFILE);
 
 }
 

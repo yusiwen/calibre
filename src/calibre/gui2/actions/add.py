@@ -9,11 +9,11 @@ import os
 from functools import partial
 from collections import defaultdict
 
-from PyQt4.Qt import QPixmap, QTimer
+from PyQt5.Qt import QPixmap, QTimer
 
 from calibre import as_unicode
 from calibre.gui2 import (error_dialog, choose_files, choose_dir,
-        warning_dialog, info_dialog)
+        warning_dialog, info_dialog, gprefs)
 from calibre.gui2.dialogs.add_empty_book import AddEmptyBookDialog
 from calibre.gui2.dialogs.confirm_delete import confirm
 from calibre.gui2.dialogs.progress import ProgressDialog
@@ -25,6 +25,7 @@ from calibre.constants import filesystem_encoding
 from calibre.gui2.actions import InterfaceAction
 from calibre.gui2 import question_dialog
 from calibre.ebooks.metadata import MetaInformation
+from calibre.ptempfile import PersistentTemporaryFile
 
 def get_filters():
     return [
@@ -66,13 +67,19 @@ class AddAction(InterfaceAction):
             'sub directories (Multiple books per directory, assumes every '
             'ebook file is a different book)')).triggered.connect(
                     self.add_recursive_multiple)
+        arm = self.add_archive_menu = self.add_menu.addMenu(_('Add multiple books from archive (ZIP/RAR)'))
+        self.create_menu_action(arm, 'recursive-single-archive', _(
+            'One book per directory in the archive')).triggered.connect(partial(self.add_archive, True))
+        self.create_menu_action(arm, 'recursive-multiple-archive', _(
+            'Multiple books per directory in the archive')).triggered.connect(partial(self.add_archive, False))
+        self.add_menu.addSeparator()
         self.add_menu.addSeparator()
         ma('add-empty', _('Add Empty book. (Book entry with no formats)'),
-                shortcut=_('Shift+Ctrl+E')).triggered.connect(self.add_empty)
+                shortcut='Shift+Ctrl+E').triggered.connect(self.add_empty)
         ma('add-isbn', _('Add from ISBN')).triggered.connect(self.add_from_isbn)
         self.add_menu.addSeparator()
         ma('add-formats', _('Add files to selected book records'),
-                triggered=self.add_formats, shortcut=_('Shift+A'))
+                triggered=self.add_formats, shortcut='Shift+A')
         self.add_menu.addSeparator()
         ma('add-config', _('Control the adding of books'),
                 triggered=self.add_config)
@@ -100,7 +107,7 @@ class AddAction(InterfaceAction):
         ids = [view.model().id(r) for r in rows]
 
         if len(ids) > 1 and not question_dialog(self.gui,
-                _('Are you sure'),
+                _('Are you sure?'),
             _('Are you sure you want to add the same'
                 ' files to all %d books? If the format'
                 ' already exists for a book, it will be replaced.')%len(ids)):
@@ -122,7 +129,7 @@ class AddAction(InterfaceAction):
                     title = db.title(ids[0], index_is_id=True)
                     msg = _('The {0} format(s) will be replaced in the book {1}. Are you sure?').format(
                         ', '.join(override), title)
-                    if not confirm(msg, 'confirm_format_override_on_add', title=_('Are you sure'), parent=self.gui):
+                    if not confirm(msg, 'confirm_format_override_on_add', title=_('Are you sure?'), parent=self.gui):
                         return
 
         for id_ in ids:
@@ -135,11 +142,21 @@ class AddAction(InterfaceAction):
         if current_idx.isValid():
             view.model().current_changed(current_idx, current_idx)
 
+    def add_archive(self, single):
+        paths = choose_files(
+            self.gui, 'recursive-archive-add', _('Choose archive file'),
+            filters=[(_('Archives'), ('zip', 'rar'))], all_files=False, select_only_single_file=True)
+        if paths:
+            self.do_add_recursive(paths[0], single)
+
     def add_recursive(self, single):
         root = choose_dir(self.gui, 'recursive book import root dir dialog',
-                          'Select root folder')
+                          _('Select root folder'))
         if not root:
             return
+        self.do_add_recursive(root, single)
+
+    def do_add_recursive(self, root, single):
         from calibre.gui2.add import Adder
         self._adder = Adder(self.gui,
                 self.gui.library_view.model().db,
@@ -178,6 +195,7 @@ class AddAction(InterfaceAction):
         dlg = AddEmptyBookDialog(self.gui, self.gui.library_view.model().db,
                                  author, series)
         if dlg.exec_() == dlg.Accepted:
+            temp_files = []
             num = dlg.qty_to_add
             series = dlg.selected_series
             db = self.gui.library_view.model().db
@@ -187,14 +205,24 @@ class AddAction(InterfaceAction):
                 if series:
                     mi.series = series
                     mi.series_index = db.get_next_series_num_for(series)
-                ids.append(db.import_book(mi, []))
+                fmts = []
+                if gprefs.get('create_empty_epub_file', False):
+                    from calibre.ebooks.oeb.polish.create import create_book
+                    pt = PersistentTemporaryFile(suffix='.epub')
+                    pt.close()
+                    temp_files.append(pt.name)
+                    create_book(mi, pt.name)
+                    fmts = [pt.name]
+                ids.append(db.import_book(mi, fmts))
             self.gui.library_view.model().books_added(num)
             if hasattr(self.gui, 'db_images'):
-                self.gui.db_images.reset()
+                self.gui.db_images.beginResetModel(), self.gui.db_images.endResetModel()
             self.gui.tags_view.recount()
             if ids:
                 ids.reverse()
                 self.gui.library_view.select_rows(ids)
+            for path in temp_files:
+                os.remove(path)
 
     def add_isbns(self, books, add_tags=[]):
         self.isbn_books = list(books)
@@ -356,7 +384,7 @@ class AddAction(InterfaceAction):
             self.gui.library_view.model().books_added(self._adder.number_of_books_added)
             self.gui.library_view.set_current_row(0)
             if hasattr(self.gui, 'db_images'):
-                self.gui.db_images.reset()
+                self.gui.db_images.beginResetModel(), self.gui.db_images.endResetModel()
             self.gui.tags_view.recount()
 
         if getattr(self._adder, 'merged_books', False):

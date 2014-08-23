@@ -7,7 +7,7 @@ __docformat__ = 'restructuredtext en'
 
 import re, os, shutil, errno
 
-from PyQt4.Qt import QModelIndex
+from PyQt5.Qt import QModelIndex
 
 from calibre.gui2 import choose_dir, error_dialog, warning_dialog
 from calibre.gui2.tools import generate_catalog
@@ -79,7 +79,7 @@ class GenerateCatalogAction(InterfaceAction):
         if job.failed:
             return self.gui.job_exception(job)
         id = self.gui.library_view.model().add_catalog(job.catalog_file_path, job.catalog_title)
-        self.gui.library_view.model().reset()
+        self.gui.library_view.model().beginResetModel(), self.gui.library_view.model().endResetModel()
         if job.catalog_sync:
             sync = dynamic.get('catalogs_to_be_synced', set([]))
             sync.add(id)

@@ -8,7 +8,7 @@ from calibre.customize import (CatalogPlugin, FileTypePlugin, PluginNotFound,
                               MetadataReaderPlugin, MetadataWriterPlugin,
                               InterfaceActionBase as InterfaceAction,
                               PreferencesPlugin, platform, InvalidPlugin,
-                              StoreBase as Store, ViewerPlugin)
+                              StoreBase as Store, ViewerPlugin, EditBookToolPlugin)
 from calibre.customize.conversion import InputFormatPlugin, OutputFormatPlugin
 from calibre.customize.zipplugin import loader
 from calibre.customize.profiles import InputProfile, OutputProfile
@@ -351,7 +351,7 @@ def get_file_type_metadata(stream, ftype):
                         continue
     return mi
 
-def set_file_type_metadata(stream, mi, ftype):
+def set_file_type_metadata(stream, mi, ftype, report_error=None):
     ftype = ftype.lower().strip()
     if _metadata_writers.has_key(ftype):
         for plugin in _metadata_writers[ftype]:
@@ -363,8 +363,12 @@ def set_file_type_metadata(stream, mi, ftype):
                         plugin.set_metadata(stream, mi, ftype.lower().strip())
                         break
                     except:
-                        print 'Failed to set metadata for', repr(getattr(mi, 'title', ''))
-                        traceback.print_exc()
+                        if report_error is None:
+                            from calibre import prints
+                            prints('Failed to set metadata for the', ftype.upper(), 'format of:', getattr(mi, 'title', ''), file=sys.stderr)
+                            traceback.print_exc()
+                        else:
+                            report_error(mi, ftype, traceback.format_exc())
 
 # }}}
 
@@ -523,6 +527,13 @@ def all_viewer_plugins():
             yield plugin
 # }}}
 
+# Editor plugins {{{
+def all_edit_book_tool_plugins():
+    for plugin in _initialized_plugins:
+        if isinstance(plugin, EditBookToolPlugin):
+            yield plugin
+# }}}
+
 # Initialize plugins {{{
 
 _initialized_plugins = []
@@ -608,7 +619,7 @@ def build_plugin(path):
         raise SystemExit(1)
     t = PersistentTemporaryFile(u'.zip')
     with ZipFile(t, u'w', ZIP_STORED) as zf:
-        zf.add_dir(path)
+        zf.add_dir(path, simple_filter=lambda x:x in {'.git', '.bzr', '.svn', '.hg'})
     t.close()
     plugin = add_plugin(t.name)
     os.remove(t.name)
@@ -677,7 +688,10 @@ def main(args=sys.argv):
                                 )
             print '\t', plugin.description
             if plugin.is_customizable():
-                print '\t', plugin.customization_help()
+                try:
+                    print '\t', plugin.customization_help()
+                except NotImplementedError:
+                    pass
             print
 
     return 0

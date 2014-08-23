@@ -7,7 +7,7 @@ __docformat__ = 'restructuredtext en'
 
 from functools import partial
 
-from PyQt4.Qt import (QIcon, Qt, QWidget, QSize,
+from PyQt5.Qt import (QIcon, Qt, QWidget, QSize,
     pyqtSignal, QToolButton, QMenu, QAction,
     QObject, QVBoxLayout, QSizePolicy, QLabel, QHBoxLayout, QActionGroup)
 
@@ -202,7 +202,7 @@ class SearchBar(QWidget):  # {{{
         parent.advanced_search_toggle_action = ac = QAction(parent)
         parent.addAction(ac)
         parent.keyboard.register_shortcut('advanced search toggle',
-                _('Advanced search'), default_keys=(_("Shift+Ctrl+F"),),
+                _('Advanced search'), default_keys=("Shift+Ctrl+F",),
                 action=ac)
         ac.triggered.connect(x.click)
         x.setIcon(QIcon(I('search.png')))
@@ -267,7 +267,10 @@ class Spacer(QWidget):  # {{{
 
 class MainWindowMixin(object):  # {{{
 
-    def __init__(self, db):
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def init_main_window_mixin(self, db):
         self.setObjectName('MainWindow')
         self.setWindowIcon(QIcon(I('lt.png')))
         self.setWindowTitle(__appname__)

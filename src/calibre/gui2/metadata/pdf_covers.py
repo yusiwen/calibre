@@ -12,7 +12,7 @@ from threading import Thread
 from glob import glob
 
 import sip
-from PyQt4.Qt import (QDialog, QApplication, QLabel, QGridLayout,
+from PyQt5.Qt import (QDialog, QApplication, QLabel, QGridLayout,
                       QDialogButtonBox, Qt, pyqtSignal, QListWidget,
                       QListWidgetItem, QSize, QIcon)
 
@@ -62,9 +62,9 @@ class PDFCovers(QDialog):
     @property
     def cover_path(self):
         for item in self.covers.selectedItems():
-            return unicode(item.data(Qt.UserRole).toString())
+            return unicode(item.data(Qt.UserRole) or '')
         if self.covers.count() > 0:
-            return unicode(self.covers.item(0).data(Qt.UserRole).toString())
+            return unicode(self.covers.item(0).data(Qt.UserRole) or '')
 
     def cleanup(self):
         try:

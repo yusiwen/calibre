@@ -7,7 +7,7 @@ __license__   = 'GPL v3'
 __copyright__ = '2012, Kovid Goyal <kovid at kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-from PyQt4.Qt import (QDialog, QPixmap, QUrl, QScrollArea, QLabel, QSizePolicy,
+from PyQt5.Qt import (QDialog, QPixmap, QUrl, QScrollArea, QLabel, QSizePolicy,
         QDialogButtonBox, QVBoxLayout, QPalette, QApplication, QSize, QIcon,
         Qt, QTransform)
 
@@ -18,7 +18,7 @@ class ImageView(QDialog):
     def __init__(self, parent, current_img, current_url, geom_name='viewer_image_popup_geometry'):
         QDialog.__init__(self)
         dw = QApplication.instance().desktop()
-        self.avail_geom = dw.availableGeometry(parent)
+        self.avail_geom = dw.availableGeometry(parent if parent is not None else self)
         self.current_img = current_img
         self.current_url = current_url
         self.factor = 1.0
@@ -98,7 +98,7 @@ class ImageView(QDialog):
         if geom is not None:
             self.restoreGeometry(geom)
         try:
-            self.current_image_name = unicode(self.current_url.toString()).rpartition('/')[-1]
+            self.current_image_name = unicode(self.current_url.toString(QUrl.None)).rpartition('/')[-1]
         except AttributeError:
             self.current_image_name = self.current_url
         title = _('View Image: %s')%self.current_image_name
@@ -113,12 +113,10 @@ class ImageView(QDialog):
         return QDialog.done(self, e)
 
     def wheelEvent(self, event):
-        if event.delta() < -14:
-            self.zoom_out()
+        d = event.angleDelta().y()
+        if abs(d) > 0 and not self.scrollarea.verticalScrollBar().isVisible():
             event.accept()
-        elif event.delta() > 14:
-            event.accept()
-            self.zoom_in()
+            (self.zoom_out if d < 0 else self.zoom_in)()
 
 class ImagePopup(object):
 

@@ -2,9 +2,9 @@
 
 __all__ = ["what"]
 
-#-------------------------#
+# -------------------------#
 # Recognize image headers #
-#-------------------------#
+# -------------------------#
 
 def what(file, h=None):
     if h is None:
@@ -33,9 +33,9 @@ def what(file, h=None):
     return None
 
 
-#---------------------------------#
+# ---------------------------------#
 # Subroutines per image file type #
-#---------------------------------#
+# ---------------------------------#
 
 tests = []
 
@@ -67,6 +67,12 @@ def test_tiff(h, f):
         return 'tiff'
 
 tests.append(test_tiff)
+
+def test_webp(h, f):
+    if h[:4] == b'RIFF' and h[8:12] == b'WEBP':
+        return 'webp'
+
+tests.append(test_webp)
 
 def test_rgb(h, f):
     """SGI image library"""
@@ -126,9 +132,9 @@ def test_emf(h, f):
 
 tests.append(test_emf)
 
-#--------------------#
+# --------------------#
 # Small test program #
-#--------------------#
+# --------------------#
 
 def test():
     import sys

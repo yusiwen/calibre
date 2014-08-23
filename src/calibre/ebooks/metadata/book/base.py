@@ -184,11 +184,14 @@ class Metadata(object):
     def has_key(self, key):
         return key in object.__getattribute__(self, '_data')
 
-    def deepcopy(self):
+    def deepcopy(self, class_generator=lambda : Metadata(None)):
         ''' Do not use this method unless you know what you are doing, if you
         want to create a simple clone of this object, use :meth:`deepcopy_metadata`
-        instead. '''
-        m = Metadata(None)
+        instead. Class_generator must be a function that returns an instance
+        of Metadata or a subclass of it.'''
+        m = class_generator()
+        if not isinstance(m, Metadata):
+            return None
         object.__setattr__(m, '__dict__', copy.deepcopy(self.__dict__))
         return m
 
@@ -674,7 +677,7 @@ class Metadata(object):
             elif datatype == 'text' and fmeta['is_multiple']:
                 if isinstance(res, dict):
                     res = [k + ':' + v for k,v in res.items()]
-                res = fmeta['is_multiple']['list_to_ui'].join(sorted(res, key=sort_key))
+                res = fmeta['is_multiple']['list_to_ui'].join(sorted(filter(None, res), key=sort_key))
             elif datatype == 'series' and series_with_index:
                 res = res + ' [%s]'%self.format_series_index()
             elif datatype == 'datetime':

@@ -29,6 +29,7 @@ from calibre.ptempfile import PersistentTemporaryFile
 from calibre.utils.date import now as nowf
 from calibre.utils.magick.draw import save_cover_data_to, add_borders_to_image
 from calibre.utils.localization import canonicalize_lang
+from calibre.utils.logging import ThreadSafeWrapper
 
 class LoginFailed(ValueError):
     pass
@@ -218,7 +219,7 @@ class BasicNewsRecipe(Recipe):
     #:     attrs     : a dictionary, #e.g. {class: 'advertisment'}
     #:    }
     #:
-    #: All keys are optional. For a full explanantion of the search criteria, see
+    #: All keys are optional. For a full explanation of the search criteria, see
     #: `Beautiful Soup <http://www.crummy.com/software/BeautifulSoup/bs3/documentation.html#Searching%20the%20Parse%20Tree>`_
     #: A common example::
     #:
@@ -425,7 +426,7 @@ class BasicNewsRecipe(Recipe):
         if not self.feeds:
             raise NotImplementedError
         if self.test:
-            return self.feeds[:2]
+            return self.feeds[:self.test[0]]
         return self.feeds
 
     @classmethod
@@ -634,7 +635,7 @@ class BasicNewsRecipe(Recipe):
         '''
         pass
 
-    def index_to_soup(self, url_or_raw, raw=False):
+    def index_to_soup(self, url_or_raw, raw=False, as_tree=False):
         '''
         Convenience method that takes an URL to the index page and returns
         a `BeautifulSoup <http://www.crummy.com/software/BeautifulSoup/documentation.html>`_
@@ -662,6 +663,16 @@ class BasicNewsRecipe(Recipe):
                 _raw = self.encoding(_raw)
             else:
                 _raw = _raw.decode(self.encoding, 'replace')
+        if as_tree:
+            import html5lib
+            from calibre.ebooks.chardet import strip_encoding_declarations, xml_to_unicode
+            from calibre.utils.cleantext import clean_xml_chars
+            if isinstance(_raw, unicode):
+                _raw = strip_encoding_declarations(_raw)
+            else:
+                _raw = xml_to_unicode(_raw, strip_encoding_pats=True, resolve_entities=True)[0]
+            return html5lib.parse(clean_xml_chars(_raw), treebuilder='lxml', namespaceHTMLElements=False)
+
         massage = list(BeautifulSoup.MARKUP_MASSAGE)
         enc = 'cp1252' if callable(self.encoding) or self.encoding is None else self.encoding
         massage.append((re.compile(r'&(\S+?);'), lambda match:
@@ -831,7 +842,7 @@ class BasicNewsRecipe(Recipe):
         :param parser:  Command line option parser. Used to intelligently merge options.
         :param progress_reporter: A Callable that takes two arguments: progress (a number between 0 and 1) and a string message. The message should be optional.
         '''
-        self.log = log
+        self.log = ThreadSafeWrapper(log)
         if not isinstance(self.title, unicode):
             self.title = unicode(self.title, 'utf-8', 'replace')
 
@@ -839,6 +850,8 @@ class BasicNewsRecipe(Recipe):
         self.output_dir = os.path.abspath(os.getcwdu())
         self.verbose = options.verbose
         self.test = options.test
+        if self.test and not isinstance(self.test, tuple):
+            self.test = (2, 2)
         self.username = options.username
         self.password = options.password
         self.lrf = options.lrf
@@ -847,8 +860,8 @@ class BasicNewsRecipe(Recipe):
         if self.touchscreen:
             self.template_css += self.output_profile.touchscreen_news_css
 
-        if options.test:
-            self.max_articles_per_feed = 2
+        if self.test:
+            self.max_articles_per_feed = self.test[1]
             self.simultaneous_downloads = min(4, self.simultaneous_downloads)
 
         if self.debug:
@@ -1155,15 +1168,13 @@ class BasicNewsRecipe(Recipe):
         if self.ignore_duplicate_articles is not None:
             feeds = self.remove_duplicate_articles(feeds)
 
-        #feeds = FeedCollection(feeds)
-
         self.report_progress(0, _('Trying to download cover...'))
         self.download_cover()
         self.report_progress(0, _('Generating masthead...'))
         self.resolve_masthead()
 
         if self.test:
-            feeds = feeds[:2]
+            feeds = feeds[:self.test[0]]
         self.has_single_feed = len(feeds) == 1
 
         index = os.path.join(self.output_dir, 'index.html')
@@ -1225,8 +1236,6 @@ class BasicNewsRecipe(Recipe):
                 time.sleep(0.1)
             except NoResultsPending:
                 break
-
-        #feeds.restore_duplicates()
 
         for f, feed in enumerate(feeds):
             html = self.feed2index(f,feeds)
@@ -1599,7 +1608,7 @@ class BasicNewsRecipe(Recipe):
                 parsed_feeds.append(feed)
                 self.log.exception(msg)
 
-        remove = [f for f in parsed_feeds if len(f) == 0 and
+        remove = [fl for fl in parsed_feeds if len(fl) == 0 and
                 self.remove_empty_feeds]
         for f in remove:
             parsed_feeds.remove(f)
@@ -1620,24 +1629,28 @@ class BasicNewsRecipe(Recipe):
         `tag`: `BeautifulSoup <http://www.crummy.com/software/BeautifulSoup/documentation.html>`_
         `Tag`
         '''
-        if not tag:
+        if tag is None:
             return ''
         if isinstance(tag, basestring):
             return tag
-        strings = []
-        for item in tag.contents:
-            if isinstance(item, (NavigableString, CData)):
-                strings.append(item.string)
-            elif isinstance(item, Tag):
-                res = self.tag_to_string(item)
-                if res:
-                    strings.append(res)
-                elif use_alt:
-                    try:
-                        strings.append(item['alt'])
-                    except KeyError:
-                        pass
-        ans = u''.join(strings)
+        if callable(getattr(tag, 'xpath', None)) and not hasattr(tag, 'contents'):  # a lxml tag
+            from lxml.etree import tostring
+            ans = tostring(tag, method='text', encoding=unicode, with_tail=False)
+        else:
+            strings = []
+            for item in tag.contents:
+                if isinstance(item, (NavigableString, CData)):
+                    strings.append(item.string)
+                elif isinstance(item, Tag):
+                    res = self.tag_to_string(item)
+                    if res:
+                        strings.append(res)
+                    elif use_alt:
+                        try:
+                            strings.append(item['alt'])
+                        except KeyError:
+                            pass
+            ans = u''.join(strings)
         if normalize_whitespace:
             ans = re.sub(r'\s+', ' ', ans)
         return ans

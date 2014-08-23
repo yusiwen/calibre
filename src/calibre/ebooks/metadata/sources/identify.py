@@ -16,6 +16,7 @@ from operator import attrgetter
 from urlparse import urlparse
 
 from calibre.customize.ui import metadata_plugins, all_metadata_plugins
+from calibre.ebooks.metadata import check_issn
 from calibre.ebooks.metadata.sources.base import create_log
 from calibre.ebooks.metadata.sources.prefs import msprefs
 from calibre.ebooks.metadata.xisbn import xisbn
@@ -289,7 +290,7 @@ class ISBNMerge(object):
             if rating and rating > 0 and rating <= 5:
                 ratings.append(rating)
         if ratings:
-            ans.rating = sum(ratings)/len(ratings)
+            ans.rating = int(round(sum(ratings)/len(ratings)))
 
         # Smallest language is likely to be valid
         ans.language = self.length_merge('language', results,
@@ -537,6 +538,10 @@ def urls_from_identifiers(identifiers):  # {{{
     if oclc:
         ans.append(('OCLC', 'oclc', oclc,
             'http://www.worldcat.org/oclc/'+oclc))
+    issn = check_issn(identifiers.get('issn', None))
+    if issn:
+        ans.append((issn, 'issn', issn,
+            'http://www.worldcat.org/issn/'+issn))
     for x in ('uri', 'url'):
         url = identifiers.get(x, None)
         if url and url.startswith('http'):
@@ -560,8 +565,7 @@ if __name__ == '__main__':  # tests {{{
             ),
 
 
-            (  # An e-book ISBN not on Amazon, one of the authors is
-              # unknown to Amazon
+            (  # An e-book ISBN not on Amazon, one of the authors is unknown to Amazon
                 {'identifiers':{'isbn': '9780307459671'},
                     'title':'Invisible Gorilla', 'authors':['Christopher Chabris']},
                 [title_test('The Invisible Gorilla: And Other Ways Our Intuitions Deceive Us', exact=True)]

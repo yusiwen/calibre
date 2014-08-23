@@ -9,8 +9,8 @@ __docformat__ = 'restructuredtext en'
 
 import textwrap
 
-from PyQt4.Qt import (QWidget, QGridLayout, QGroupBox, QListView, Qt, QSpinBox,
-        QDoubleSpinBox, QCheckBox, QLineEdit, QComboBox, QLabel, QVariant)
+from PyQt5.Qt import (QWidget, QGridLayout, QGroupBox, QListView, Qt, QSpinBox,
+        QDoubleSpinBox, QCheckBox, QLineEdit, QComboBox, QLabel)
 
 from calibre.gui2.preferences.metadata_sources import FieldsModel as FM
 
@@ -24,12 +24,13 @@ class FieldsModel(FM): # {{{
 
     def initialize(self):
         fields = self.plugin.touched_fields
+        self.beginResetModel()
         self.fields = []
         for x in fields:
             if not x.startswith('identifier:') and x not in self.exclude:
                 self.fields.append(x)
         self.fields.sort(key=lambda x:self.descs.get(x, x))
-        self.reset()
+        self.endResetModel()
 
     def state(self, field, defaults=False):
         src = self.prefs.defaults if defaults else self.prefs
@@ -37,8 +38,9 @@ class FieldsModel(FM): # {{{
                     else Qt.Checked)
 
     def restore_defaults(self):
+        self.beginResetModel()
         self.overrides = dict([(f, self.state(f, True)) for f in self.fields])
-        self.reset()
+        self.endResetModel()
 
     def commit(self):
         ignored_fields = set([x for x in self.prefs['ignore_fields'] if x not in
@@ -96,8 +98,8 @@ class ConfigWidget(QWidget):
         elif opt.type == 'choices':
             widget = QComboBox(self)
             for key, label in opt.choices.iteritems():
-                widget.addItem(label, QVariant(key))
-            idx = widget.findData(QVariant(val))
+                widget.addItem(label, (key))
+            idx = widget.findData((val))
             widget.setCurrentIndex(idx)
         widget.opt = opt
         widget.setToolTip(textwrap.fill(opt.desc))
@@ -125,7 +127,7 @@ class ConfigWidget(QWidget):
                 val = w.isChecked()
             elif isinstance(w, QComboBox):
                 idx = w.currentIndex()
-                val = unicode(w.itemData(idx).toString())
+                val = unicode(w.itemData(idx) or '')
             self.plugin.prefs[w.opt.name] = val
 
 

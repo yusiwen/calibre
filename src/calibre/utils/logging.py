@@ -40,7 +40,6 @@ class ANSIStream(Stream):
                       }
 
     def prints(self, level, *args, **kwargs):
-        kwargs['file'] = self.stream
         from calibre.utils.terminal import ColoredStream
         with ColoredStream(self.stream, self.color[level]):
             self._prints(*args, **kwargs)
@@ -148,7 +147,6 @@ class Log(object):
         self.warn  = self.warning = partial(self.prints, WARN)
         self.error = partial(self.prints, ERROR)
 
-
     def prints(self, level, *args, **kwargs):
         if level < self.filter_level:
             return
@@ -173,6 +171,17 @@ class ThreadSafeLog(Log):
 
     def __init__(self, level=Log.INFO):
         Log.__init__(self, level=level)
+        self._lock = RLock()
+
+    def prints(self, *args, **kwargs):
+        with self._lock:
+            Log.prints(self, *args, **kwargs)
+
+class ThreadSafeWrapper(Log):
+
+    def __init__(self, other_log):
+        Log.__init__(self, level=other_log.filter_level)
+        self.outputs = list(other_log.outputs)
         self._lock = RLock()
 
     def prints(self, *args, **kwargs):

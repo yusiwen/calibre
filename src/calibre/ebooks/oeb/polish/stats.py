@@ -12,9 +12,9 @@ from urllib import unquote
 from collections import defaultdict
 
 from cssutils import CSSParser
-from PyQt4.Qt import (pyqtProperty, QString, QEventLoop, Qt, QSize, QTimer,
+from PyQt5.Qt import (pyqtProperty, QEventLoop, Qt, QSize, QTimer,
                       pyqtSlot)
-from PyQt4.QtWebKit import QWebPage, QWebView
+from PyQt5.QtWebKitWidgets import QWebPage, QWebView
 
 from calibre.constants import iswindows
 from calibre.ebooks.oeb.display.webview import load_html
@@ -130,12 +130,14 @@ class Page(QWebPage):  # {{{
 
     def _pass_json_value_getter(self):
         val = json.dumps(self.bridge_value)
-        return QString(val)
+        return val
 
     def _pass_json_value_setter(self, value):
-        self.bridge_value = json.loads(unicode(value))
+        # Qt WebKit in Qt 4.x adds extra null bytes to the end of the string
+        # if the JSON contains non-BMP characters
+        self.bridge_value = json.loads(unicode(value).rstrip('\0'))
 
-    _pass_json_value = pyqtProperty(QString, fget=_pass_json_value_getter,
+    _pass_json_value = pyqtProperty(str, fget=_pass_json_value_getter,
             fset=_pass_json_value_setter)
 
     def load_js(self):
@@ -253,6 +255,10 @@ class StatsCollector(object):
             src = rule.get('src', None)
             if not src:
                 continue
+            if src.startswith('url(') and src.endswith(')') and src[4] not in {'"', "'"}:
+                # Quote the url otherwise cssutils fails to parse it if it has
+                # ' or " in it
+                src = "url('" + src[4:-1].replace("'", "\\'") + "')"
             style = self.parser.parseStyle('background-image:%s'%src, validate=False)
             src = style.getProperty('background-image').propertyValue[0].uri
             name = self.href_to_name(src, '@font-face rule')

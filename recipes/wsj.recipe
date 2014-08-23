@@ -16,6 +16,8 @@ class WallStreetJournal(BasicNewsRecipe):
     needs_subscription = True
     language = 'en'
 
+    compress_news_images = True
+    compress_news_images_auto_size = 5
     max_articles_per_feed = 1000
     timefmt  = ' [%a, %b %d, %Y]'
     no_stylesheets = True
@@ -106,6 +108,23 @@ class WallStreetJournal(BasicNewsRecipe):
                 title = self.tag_to_string(a)
                 url = self.abs_wsj_url(a['href'])
                 feeds = self.wsj_add_feed(feeds,title,url)
+
+        for li in soup.findAll('li', attrs={'class':'ahed_listitem'}):
+            h2 = li.find('h2')
+            if h2 is None:
+                continue
+            a = h2.find('a', href=True)
+            if a is None:
+                continue
+            url = a['href']
+            title = self.tag_to_string(a)
+            p = h2.findNextSibling('p')
+            if p is not None:
+                desc = self.tag_to_string(p)
+            else:
+                desc = ''
+            if feeds:
+                feeds[0][1].append({'title':title, 'url':url, 'description':desc, 'date':''})
         return feeds
 
     def wsj_find_wn_articles(self, url):
@@ -165,7 +184,7 @@ class WallStreetJournal(BasicNewsRecipe):
             desc = ''
             for p in container.findAll('p'):
                 desc = self.tag_to_string(p)
-                if not 'Subscriber Content' in desc:
+                if 'Subscriber Content' not in desc:
                     break
 
             articles.append({'title':title, 'url':url,

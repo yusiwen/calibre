@@ -4,29 +4,29 @@
 """
 Original Perl version by: John Gruber http://daringfireball.net/ 10 May 2008
 Python version by Stuart Colville http://muffinresearch.co.uk
+Modifications to make it work with non-ascii chars by Kovid Goyal
 License: http://www.opensource.org/licenses/mit-license.php
 """
 
 import re
 
-from calibre.utils.icu import capitalize
+from calibre.utils.icu import capitalize, upper
 
 __all__ = ['titlecase']
 __version__ = '0.5'
 
 SMALL = 'a|an|and|as|at|but|by|en|for|if|in|of|on|or|the|to|v\.?|via|vs\.?'
-PUNCT = r"""!"#$%&'‘()*+,\-‒–—―./:;?@[\\\]_`{|}~"""
+PUNCT = r"""!"#$%&'‘’()*+,\-‒–—―./:;?@[\\\]_`{|}~"""
 
 SMALL_WORDS = re.compile(r'^(%s)$' % SMALL, re.I)
 INLINE_PERIOD = re.compile(r'[a-z][.][a-z]', re.I)
 UC_ELSEWHERE = re.compile(r'[%s]*?[a-zA-Z]+[A-Z]+?' % PUNCT)
-CAPFIRST = re.compile(r"^[%s]*?([A-Za-z])" % PUNCT)
-SMALL_FIRST = re.compile(r'^([%s]*)(%s)\b' % (PUNCT, SMALL), re.I)
-SMALL_LAST = re.compile(r'\b(%s)[%s]?$' % (SMALL, PUNCT), re.I)
-SMALL_AFTER_NUM = re.compile(r'(\d+\s+)(a|an|the)\b', re.I)
+CAPFIRST = re.compile(ur"^[%s]*?(\w)" % PUNCT, flags=re.UNICODE)
+SMALL_FIRST = re.compile(r'^([%s]*)(%s)\b' % (PUNCT, SMALL), re.I|re.U)
+SMALL_LAST = re.compile(r'\b(%s)[%s]?$' % (SMALL, PUNCT), re.I|re.U)
+SMALL_AFTER_NUM = re.compile(r'(\d+\s+)(a|an|the)\b', re.I|re.U)
 SUBPHRASE = re.compile(r'([:.;?!][ ])(%s)' % SMALL)
 APOS_SECOND = re.compile(r"^[dol]{1}['‘]{1}[a-z]+$", re.I)
-ALL_CAPS = re.compile(r'^[A-Z0-9\s%s]+$' % PUNCT)
 UC_INITIALS = re.compile(r"^(?:[A-Z]{1}\.{1}|[A-Z]{1}\.{1}[A-Z]{1})+$")
 
 _lang = None
@@ -51,7 +51,7 @@ def titlecase(text):
 
     """
 
-    all_caps = ALL_CAPS.match(text)
+    all_caps = upper(text) == text
 
     words = re.split('\s+', text)
     line = []
@@ -79,7 +79,6 @@ def titlecase(text):
         for item in word.split('-'):
             hyphenated.append(CAPFIRST.sub(lambda m: icu_upper(m.group(0)), item))
         line.append("-".join(hyphenated))
-
 
     result = " ".join(line)
 

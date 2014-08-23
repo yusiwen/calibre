@@ -19,6 +19,7 @@ from calibre.ebooks.oeb.base import (XHTML, XHTML_NS, CSS_MIME, OEB_STYLES,
         namespace, barename, XPath)
 from calibre.ebooks.oeb.stylizer import Stylizer
 from calibre.utils.filenames import ascii_filename, ascii_text
+from calibre.utils.icu import numeric_sort_key
 
 COLLAPSE = re.compile(r'[ \t\r\n\v]+')
 STRIPNUM = re.compile(r'[-0-9]+$')
@@ -150,11 +151,13 @@ class CSSFlattener(object):
         self.filter_css = frozenset()
         if self.opts.filter_css:
             try:
-                self.filter_css = frozenset([x.strip().lower() for x in
-                    self.opts.filter_css.split(',')])
+                self.filter_css = {x.strip().lower() for x in
+                    self.opts.filter_css.split(',')}
             except:
                 self.oeb.log.warning('Failed to parse filter_css, ignoring')
             else:
+                from calibre.ebooks.oeb.normalize_css import normalize_filter_css
+                self.filter_css = frozenset(normalize_filter_css(self.filter_css))
                 self.oeb.log.debug('Filtering CSS properties: %s'%
                     ', '.join(self.filter_css))
 
@@ -457,10 +460,10 @@ class CSSFlattener(object):
             keep_classes = set()
 
             if cssdict:
-                items = sorted(cssdict.items())
+                items = sorted(cssdict.iteritems())
                 css = u';\n'.join(u'%s: %s' % (key, val) for key, val in items)
                 classes = node.get('class', '').strip() or 'calibre'
-                klass = ascii_text(STRIPNUM.sub('', classes.split()[0].replace('_', '')))
+                klass = ascii_text(STRIPNUM.sub('', classes.split()[0]))
                 if css in styles:
                     match = styles[css]
                 else:
@@ -500,14 +503,14 @@ class CSSFlattener(object):
     def flatten_head(self, item, href, global_href):
         html = item.data
         head = html.find(XHTML('head'))
-        for node in head:
+        for node in html.xpath('//*[local-name()="style" or local-name()="link"]'):
             if node.tag == XHTML('link') \
                and node.get('rel', 'stylesheet') == 'stylesheet' \
                and node.get('type', CSS_MIME) in OEB_STYLES:
-                head.remove(node)
+                node.getparent().remove(node)
             elif node.tag == XHTML('style') \
                  and node.get('type', CSS_MIME) in OEB_STYLES:
-                head.remove(node)
+                node.getparent().remove(node)
         href = item.relhref(href)
         l = etree.SubElement(head, XHTML('link'),
             rel='stylesheet', type=CSS_MIME, href=href)
@@ -575,7 +578,7 @@ class CSSFlattener(object):
             body = html.find(XHTML('body'))
             fsize = self.context.dest.fbase
             self.flatten_node(body, stylizer, names, styles, pseudo_styles, fsize, item.id)
-        items = sorted([(key, val) for (val, key) in styles.items()])
+        items = sorted(((key, val) for (val, key) in styles.iteritems()), key=lambda x:numeric_sort_key(x[0]))
         # :hover must come after link and :active must come after :hover
         psels = sorted(pseudo_styles.iterkeys(), key=lambda x :
                 {'hover':1, 'active':2}.get(x, 0))

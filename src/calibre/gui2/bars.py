@@ -7,14 +7,17 @@ __license__   = 'GPL v3'
 __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
+from functools import partial
 
-from PyQt4.Qt import (Qt, QAction, QLabel, QMenu, QMenuBar, QObject,
-    QToolBar, QToolButton, QSize, QVBoxLayout, QWidget)
+import sip
+from PyQt5.Qt import (Qt, QAction, QMenu, QMenuBar, QObject,
+    QToolBar, QToolButton, QSize, pyqtSignal, QTimer)
 
 from calibre.constants import isosx
-from calibre.gui2 import gprefs
+from calibre.gui2.throbber import create_donate_widget
+from calibre.gui2 import gprefs, workaround_broken_under_mouse
 
-class ToolBar(QToolBar): # {{{
+class ToolBar(QToolBar):  # {{{
 
     def __init__(self, donate, location_manager, parent):
         QToolBar.__init__(self, parent)
@@ -54,7 +57,8 @@ class ToolBar(QToolBar): # {{{
 
     def contextMenuEvent(self, ev):
         ac = self.actionAt(ev.pos())
-        if ac is None: return
+        if ac is None:
+            return
         ch = self.widgetForAction(ac)
         sm = getattr(ch, 'showMenu', None)
         if callable(sm):
@@ -88,15 +92,7 @@ class ToolBar(QToolBar): # {{{
                     bar.setup_tool_button(bar, ac, QToolButton.MenuButtonPopup)
                     ac.setVisible(False)
             elif what == 'Donate':
-                self.d_widget = QWidget()
-                self.d_widget.setLayout(QVBoxLayout())
-                self.d_widget.layout().addWidget(self.donate_button)
-                if isosx:
-                    self.d_widget.setStyleSheet('QWidget, QToolButton {background-color: none; border: none; }')
-                    self.d_widget.layout().setContentsMargins(0,0,0,0)
-                    self.d_widget.setContentsMargins(0,0,0,0)
-                    self.d_widget.filler = QLabel(u'\u00a0')
-                    self.d_widget.layout().addWidget(self.d_widget.filler)
+                self.d_widget = create_donate_widget(self.donate_button)
                 bar.addWidget(self.d_widget)
                 self.showing_donate = True
             elif what in self.gui.iactions:
@@ -112,8 +108,12 @@ class ToolBar(QToolBar): # {{{
             ch = self.child_bar.widgetForAction(ac)
         ch.setCursor(Qt.PointingHandCursor)
         ch.setAutoRaise(True)
-        if ac.menu() is not None and menu_mode is not None:
-            ch.setPopupMode(menu_mode)
+        m = ac.menu()
+        if m is not None:
+            if workaround_broken_under_mouse is not None:
+                m.aboutToHide.connect(partial(workaround_broken_under_mouse, ch))
+            if menu_mode is not None:
+                ch.setPopupMode(menu_mode)
         return ch
 
     # support drag&drop from/to library, from/to reader/card, enabled plugins
@@ -125,8 +125,8 @@ class ToolBar(QToolBar): # {{{
                     aa = iac.qaction
                     w = self.widgetForAction(aa)
                     m = aa.menu()
-                    if (( (w is not None and w.geometry().contains(pos)) or
-                          (m is not None and m.isVisible() and m.geometry().contains(pos)) ) and
+                    if (((w is not None and w.geometry().contains(pos)) or
+                          (m is not None and m.isVisible() and m.geometry().contains(pos))) and
                          getattr(iac, func)(event, md)):
                         return True
         return False
@@ -151,8 +151,8 @@ class ToolBar(QToolBar): # {{{
         for ac in self.location_manager.available_actions:
             w = self.widgetForAction(ac)
             if w is not None:
-                if ( md.hasFormat("application/calibre+from_library") or \
-                     md.hasFormat("application/calibre+from_device") ) and \
+                if (md.hasFormat("application/calibre+from_library") or
+                     md.hasFormat("application/calibre+from_device")) and \
                         w.geometry().contains(event.pos()) and \
                         isinstance(w, QToolButton) and not w.isChecked():
                     allowed = True
@@ -200,7 +200,7 @@ class ToolBar(QToolBar): # {{{
 
 # }}}
 
-class MenuAction(QAction): # {{{
+class MenuAction(QAction):  # {{{
 
     def __init__(self, clone, parent):
         QAction.__init__(self, clone.text(), parent)
@@ -211,61 +211,203 @@ class MenuAction(QAction): # {{{
         self.setText(self.clone.text())
 # }}}
 
-class MenuBar(QMenuBar): # {{{
+# MenuBar {{{
 
-    def __init__(self, location_manager, parent):
-        QMenuBar.__init__(self, parent)
-        self.gui = parent
-        self.setNativeMenuBar(True)
+if isosx:
+    # On OS X we need special handling for the application global menu bar and
+    # the context menus, since Qt does not handle dynamic menus or menus in
+    # which the same action occurs in more than one place.
 
-        self.location_manager = location_manager
-        self.added_actions = []
+    class CloneAction(QAction):
 
-        self.donate_action = QAction(_('Donate'), self)
-        self.donate_menu = QMenu()
-        self.donate_menu.addAction(self.gui.donate_action)
-        self.donate_action.setMenu(self.donate_menu)
+        text_changed = pyqtSignal()
+        visibility_changed = pyqtSignal()
 
-    def update_lm_actions(self):
-        for ac in self.added_actions:
-            clone = getattr(ac, 'clone', None)
-            if clone is not None and clone in self.location_manager.all_actions:
-                ac.setVisible(clone in self.location_manager.available_actions)
+        def __init__(self, clone, parent, is_top_level=False, clone_shortcuts=True):
+            QAction.__init__(self, clone.text(), parent)
+            self.setMenuRole(QAction.NoRole)  # ensure this action is not moved around by Qt
+            self.is_top_level = is_top_level
+            self.clone_shortcuts = clone_shortcuts
+            self.clone = clone
+            clone.changed.connect(self.clone_changed)
+            self.clone_changed()
+            self.triggered.connect(self.do_trigger)
 
-    def init_bar(self, actions):
-        for ac in self.added_actions:
-            m = ac.menu()
-            if m is not None:
-                m.setVisible(False)
+        def clone_changed(self):
+            otext = self.text()
+            self.setText(self.clone.text())
+            if otext != self.text:
+                self.text_changed.emit()
+            ov = self.isVisible()
+            self.setVisible(self.clone.isVisible())
+            if ov != self.isVisible():
+                self.visibility_changed.emit()
+            self.setEnabled(self.clone.isEnabled())
+            self.setCheckable(self.clone.isCheckable())
+            self.setChecked(self.clone.isChecked())
+            self.setIcon(self.clone.icon())
+            if self.clone_shortcuts:
+                self.setShortcuts(self.clone.shortcuts())
+            if self.clone.menu() is None:
+                if not self.is_top_level:
+                    self.setMenu(None)
+            else:
+                m = QMenu(self.text(), self.parent())
+                for ac in QMenu.actions(self.clone.menu()):
+                    if ac.isSeparator():
+                        m.addSeparator()
+                    else:
+                        m.addAction(CloneAction(ac, self.parent(), clone_shortcuts=self.clone_shortcuts))
+                self.setMenu(m)
 
-        self.clear()
-        self.added_actions = []
+        def do_trigger(self, checked=False):
+            if not sip.isdeleted(self.clone):
+                self.clone.trigger()
 
-        for what in actions:
+    def populate_menu(m, items, iactions):
+        for what in items:
             if what is None:
-                continue
-            elif what == 'Location Manager':
-                for ac in self.location_manager.all_actions:
-                    ac = self.build_menu(ac)
+                m.addSeparator()
+            elif what in iactions:
+                m.addAction(CloneAction(iactions[what].qaction, m))
+
+    class MenuBar(QObject):
+
+        @property
+        def native_menubar(self):
+            return self.gui.native_menubar
+
+        def __init__(self, location_manager, parent):
+            QObject.__init__(self, parent)
+            self.gui = parent
+
+            self.location_manager = location_manager
+            self.added_actions = []
+            self.last_actions = []
+
+            self.donate_action = QAction(_('Donate'), self)
+            self.donate_menu = QMenu()
+            self.donate_menu.addAction(self.gui.donate_action)
+            self.donate_action.setMenu(self.donate_menu)
+            self.refresh_timer = t = QTimer(self)
+            t.setInterval(200), t.setSingleShot(True), t.timeout.connect(self.refresh_bar)
+
+        def init_bar(self, actions):
+            self.last_actions = actions
+            for ac in self.added_actions:
+                m = ac.menu()
+                if m is not None:
+                    m.setVisible(False)
+
+            mb = self.native_menubar
+            for ac in self.added_actions:
+                mb.removeAction(ac)
+                if ac is not self.donate_action:
+                    ac.setMenu(None)
+                    ac.deleteLater()
+            self.added_actions = []
+
+            for what in actions:
+                if what is None:
+                    continue
+                elif what == 'Location Manager':
+                    for ac in self.location_manager.available_actions:
+                        self.build_menu(ac)
+                elif what == 'Donate':
+                    mb.addAction(self.donate_action)
+                elif what in self.gui.iactions:
+                    action = self.gui.iactions[what]
+                    self.build_menu(action.qaction)
+
+        def build_menu(self, ac):
+            ans = CloneAction(ac, self.native_menubar, is_top_level=True)
+            if ans.menu() is None:
+                m = QMenu()
+                m.addAction(CloneAction(ac, self.native_menubar))
+                ans.setMenu(m)
+            # Qt (as of 5.3.0) does not update global menubar entries
+            # correctly, so we have to rebuild the global menubar.
+            # Without this the Choose Library action shows the text
+            # 'Untitled' and the Location Manager items do not work.
+            ans.text_changed.connect(self.refresh_timer.start)
+            ans.visibility_changed.connect(self.refresh_timer.start)
+            self.native_menubar.addAction(ans)
+            self.added_actions.append(ans)
+            return ans
+
+        def setVisible(self, yes):
+            pass  # no-op on OS X since menu bar is always visible
+
+        def update_lm_actions(self):
+            pass  # no-op as this is taken care of by init_bar()
+
+        def refresh_bar(self):
+            self.init_bar(self.last_actions)
+
+else:
+
+    def populate_menu(m, items, iactions):
+        for what in items:
+            if what is None:
+                m.addSeparator()
+            elif what in iactions:
+                m.addAction(iactions[what].qaction)
+
+    class MenuBar(QMenuBar):
+
+        def __init__(self, location_manager, parent):
+            QMenuBar.__init__(self, parent)
+            parent.setMenuBar(self)
+            self.gui = parent
+
+            self.location_manager = location_manager
+            self.added_actions = []
+
+            self.donate_action = QAction(_('Donate'), self)
+            self.donate_menu = QMenu()
+            self.donate_menu.addAction(self.gui.donate_action)
+            self.donate_action.setMenu(self.donate_menu)
+
+        def init_bar(self, actions):
+            for ac in self.added_actions:
+                m = ac.menu()
+                if m is not None:
+                    m.setVisible(False)
+
+            self.clear()
+            self.added_actions = []
+
+            for what in actions:
+                if what is None:
+                    continue
+                elif what == 'Location Manager':
+                    for ac in self.location_manager.all_actions:
+                        ac = self.build_menu(ac)
+                        self.addAction(ac)
+                        self.added_actions.append(ac)
+                        ac.setVisible(False)
+                elif what == 'Donate':
+                    self.addAction(self.donate_action)
+                elif what in self.gui.iactions:
+                    action = self.gui.iactions[what]
+                    ac = self.build_menu(action.qaction)
                     self.addAction(ac)
                     self.added_actions.append(ac)
-                    ac.setVisible(False)
-            elif what == 'Donate':
-                self.addAction(self.donate_action)
-            elif what in self.gui.iactions:
-                action = self.gui.iactions[what]
-                ac = self.build_menu(action.qaction)
-                self.addAction(ac)
-                self.added_actions.append(ac)
 
-    def build_menu(self, action):
-        m = action.menu()
-        ac = MenuAction(action, self)
-        if m is None:
-            m = QMenu()
-            m.addAction(action)
-        ac.setMenu(m)
-        return ac
+        def build_menu(self, action):
+            m = action.menu()
+            ac = MenuAction(action, self)
+            if m is None:
+                m = QMenu()
+                m.addAction(action)
+            ac.setMenu(m)
+            return ac
+
+        def update_lm_actions(self):
+            for ac in self.added_actions:
+                clone = getattr(ac, 'clone', None)
+                if clone is not None and clone in self.location_manager.all_actions:
+                    ac.setVisible(clone in self.location_manager.available_actions)
 
 # }}}
 
@@ -282,7 +424,6 @@ class BarsManager(QObject):
         self.child_bars = tuple(bars[2:])
 
         self.menu_bar = MenuBar(self.location_manager, self.parent())
-        self.parent().setMenuBar(self.menu_bar)
 
         self.apply_settings()
         self.init_bars()

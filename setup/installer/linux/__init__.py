@@ -14,18 +14,16 @@ class Linux32(VMInstaller):
 
     description = 'Build 32bit linux binary installer'
 
-    INSTALLER_EXT = 'tar.bz2'
-    VM_NAME = 'gentoo32_build'
-    VM = '/vmware/bin/gentoo32_build'
+    INSTALLER_EXT = 'txz'
+    VM_NAME = 'linux32-build'
     FREEZE_COMMAND = 'linux_freeze'
-    FREEZE_TEMPLATE = 'sudo python -OO setup.py {freeze_command}'
+    FREEZE_TEMPLATE = 'python -OO setup.py {freeze_command}'
 
 
 class Linux64(Linux32):
 
     description = 'Build 64bit linux binary installer'
-    VM_NAME = 'gentoo64_build'
-    VM = '/vmware/bin/gentoo64_build'
+    VM_NAME = 'linux64-build'
     IS_64_BIT = True
 
 class Linux(Command):

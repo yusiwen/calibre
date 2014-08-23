@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import (unicode_literals, division, absolute_import, print_function)
-store_version = 2 # Needed for dynamic plugin loading
+store_version = 4 # Needed for dynamic plugin loading
 
 __license__ = 'GPL 3'
-__copyright__ = '2012-2013, Tomasz Długosz <tomek3d@gmail.com>'
+__copyright__ = '2012-2014, Tomasz Długosz <tomek3d@gmail.com>'
 __docformat__ = 'restructuredtext en'
 
 import urllib
@@ -12,7 +12,7 @@ from contextlib import closing
 
 from lxml import html
 
-from PyQt4.Qt import QUrl
+from PyQt5.Qt import QUrl
 
 from calibre import browser, url_slash_cleaner
 from calibre.gui2 import open_url
@@ -64,7 +64,7 @@ class PublioStore(BasicStoreConfig, StorePlugin):
                     price = ''.join(data.xpath('.//div[@class="priceBox tk-museo-slab"]/ins/text()'))
                     if not price:
                         price = ''.join(data.xpath('.//div[@class="priceBox tk-museo-slab"]/text()')).strip()
-                    formats = ', '.join(data.xpath('.//div[@class="formats"]/a/img/@alt'))
+                    formats = ', '.join([x.strip() for x in data.xpath('.//div[@class="formats"]/a/text()')])
 
                     counter -= 1
 

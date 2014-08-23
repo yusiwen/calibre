@@ -199,6 +199,9 @@ def address_type(address):
 
 # Exceptions
 
+class MalformedPacketException(Exception):
+    pass
+
 class NonLocalNameException(Exception):
     pass
 
@@ -595,23 +598,26 @@ class DNSIncoming(object):
         first = off
 
         while 1:
-            len = ord(self.data[off])
-            off += 1
-            if len == 0:
-                break
-            t = len & 0xC0
-            if t == 0x00:
-                result = ''.join((result, self.readUTF(off, len) + '.'))
-                off += len
-            elif t == 0xC0:
-                if next < 0:
-                    next = off + 1
-                off = ((len & 0x3F) << 8) | ord(self.data[off])
-                if off >= first:
-                    raise BadDomainNameCircular(off)
-                first = off
-            else:
-                raise BadDomainName(off)
+            try:
+                len = ord(self.data[off])
+                off += 1
+                if len == 0:
+                    break
+                t = len & 0xC0
+                if t == 0x00:
+                    result = ''.join((result, self.readUTF(off, len) + '.'))
+                    off += len
+                elif t == 0xC0:
+                    if next < 0:
+                        next = off + 1
+                    off = ((len & 0x3F) << 8) | ord(self.data[off])
+                    if off >= first:
+                        raise BadDomainNameCircular(off)
+                    first = off
+                else:
+                    raise BadDomainName(off)
+            except IndexError:
+                raise MalformedPacketException()
 
         if next >= 0:
             self.offset = next
@@ -764,8 +770,8 @@ class DNSOutgoing(object):
             self.finished = 1
             for question in self.questions:
                 self.writeQuestion(question)
-            for answer, time in self.answers:
-                self.writeRecord(answer, time)
+            for answer, atime in self.answers:
+                self.writeRecord(answer, atime)
             for authority in self.authorities:
                 self.writeRecord(authority, 0)
             for additional in self.additionals:
@@ -873,9 +879,11 @@ class Engine(threading.Thread):
                     rr, wr, er = select.select(rs, [], [], self.timeout)
                     if globals()['_GLOBAL_DONE']:
                         continue
-                    for socket in rr:
+                    for sock in rr:
                         try:
-                            self.readers[socket].handle_read()
+                            self.readers[sock].handle_read()
+                        except MalformedPacketException:
+                            pass
                         except:
                             if DEBUG:
                                 traceback.print_exc()

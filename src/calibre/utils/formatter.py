@@ -322,6 +322,7 @@ class TemplateFormatter(string.Formatter):
         string.Formatter.__init__(self)
         self.book = None
         self.kwargs = None
+        self.strip_results = True
         self.locals = {}
 
     def _do_format(self, val, fmt):
@@ -473,10 +474,13 @@ class TemplateFormatter(string.Formatter):
                             (func.arg_count > 1 and func.arg_count != len(args)+1):
                         raise ValueError('Incorrect number of arguments for function '+ fmt[0:p])
                     if func.arg_count == 1:
-                        val = func.eval_(self, self.kwargs, self.book, self.locals, val).strip()
+                        val = func.eval_(self, self.kwargs, self.book, self.locals, val)
+                        if self.strip_results:
+                            val = val.strip()
                     else:
-                        val = func.eval_(self, self.kwargs, self.book, self.locals,
-                                        val, *args).strip()
+                        val = func.eval_(self, self.kwargs, self.book, self.locals, val, *args)
+                        if self.strip_results:
+                            val = val.strip()
                 else:
                     return _('%s: unknown function')%fname
         if val:
@@ -487,25 +491,30 @@ class TemplateFormatter(string.Formatter):
 
     def evaluate(self, fmt, args, kwargs):
         if fmt.startswith('program:'):
-            ans = self._eval_program(None, fmt[8:], self.column_name)
+            ans = self._eval_program(kwargs.get('$', None), fmt[8:], self.column_name)
         else:
             ans = self.vformat(fmt, args, kwargs)
-        return self.compress_spaces.sub(' ', ans).strip()
+        if self.strip_results:
+            return self.compress_spaces.sub(' ', ans).strip()
+        return ans
 
     ########## a formatter that throws exceptions ############
 
-    def unsafe_format(self, fmt, kwargs, book):
+    def unsafe_format(self, fmt, kwargs, book, strip_results=True):
+        self.strip_results = strip_results
         self.column_name = self.template_cache = None
         self.kwargs = kwargs
         self.book = book
         self.composite_values = {}
         self.locals = {}
-        return self.evaluate(fmt, [], kwargs).strip()
+        return self.evaluate(fmt, [], kwargs)
 
     ########## a formatter guaranteed not to throw an exception ############
 
     def safe_format(self, fmt, kwargs, error_value, book,
-                    column_name=None, template_cache=None):
+                    column_name=None, template_cache=None,
+                    strip_results=True):
+        self.strip_results = strip_results
         self.column_name = column_name
         self.template_cache = template_cache
         self.kwargs = kwargs
@@ -513,9 +522,9 @@ class TemplateFormatter(string.Formatter):
         self.composite_values = {}
         self.locals = {}
         try:
-            ans = self.evaluate(fmt, [], kwargs).strip()
+            ans = self.evaluate(fmt, [], kwargs)
         except Exception as e:
-            if DEBUG and getattr(e, 'is_locking_error', False):
+            if DEBUG: # and getattr(e, 'is_locking_error', False):
                 traceback.print_exc()
             ans = error_value + ' ' + e.message
         return ans

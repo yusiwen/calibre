@@ -6,30 +6,28 @@ __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import textwrap, os, shlex, subprocess, glob, shutil
+import textwrap, os, shlex, subprocess, glob, shutil, re, sys
 from distutils import sysconfig
-from multiprocessing import cpu_count
 
-from PyQt4.pyqtconfig import QtGuiModuleMakefile
-
-from setup import Command, islinux, isbsd, isosx, SRC, iswindows
+from setup import Command, islinux, isbsd, isosx, SRC, iswindows, __version__
 from setup.build_environment import (chmlib_inc_dirs,
-        podofo_inc, podofo_lib, podofo_error, pyqt, OSX_SDK, NMAKE, QMAKE,
-        msvc, MT, win_inc, win_lib, win_ddk, magick_inc_dirs, magick_lib_dirs,
+        podofo_inc, podofo_lib, podofo_error, pyqt, NMAKE, QMAKE,
+        msvc, win_inc, win_lib, magick_inc_dirs, magick_lib_dirs,
         magick_libs, chmlib_lib_dirs, sqlite_inc_dirs, icu_inc_dirs,
-        icu_lib_dirs, win_ddk_lib_dirs, ft_libs, ft_lib_dirs, ft_inc_dirs,
-        zlib_libs, zlib_lib_dirs, zlib_inc_dirs, is64bit, qt_private_inc)
-MT
+        icu_lib_dirs, ft_libs, ft_lib_dirs, ft_inc_dirs, cpu_count,
+        zlib_libs, zlib_lib_dirs, zlib_inc_dirs, is64bit, glib_flags, fontconfig_flags)
+from setup.parallel_build import create_job, parallel_build
 isunix = islinux or isosx or isbsd
 
 make = 'make' if isunix else NMAKE
+py_lib = os.path.join(sys.prefix, 'libs', 'python%d%d.lib' % sys.version_info[:2])
 
 class Extension(object):
 
-    def absolutize(self, paths):
+    @classmethod
+    def absolutize(cls, paths):
         return list(set([x if os.path.isabs(x) else os.path.join(SRC, x.replace('/',
             os.sep)) for x in paths]))
-
 
     def __init__(self, name, sources, **kwargs):
         self.name = name
@@ -46,7 +44,6 @@ class Extension(object):
         self.cflags = kwargs.get('cflags', [])
         self.ldflags = kwargs.get('ldflags', [])
         self.optional = kwargs.get('optional', False)
-        self.needs_ddk = kwargs.get('needs_ddk', False)
         of = kwargs.get('optimize_level', None)
         if of is None:
             of = '/Ox' if iswindows else '-O3'
@@ -54,6 +51,7 @@ class Extension(object):
             flag = '/O%d' if iswindows else '-O%d'
             of = flag % of
         self.cflags.insert(0, of)
+        self.qt_private_headers = kwargs.get('qt_private', [])
 
     def preflight(self, obj_dir, compiler, linker, builder, cflags, ldflags):
         pass
@@ -65,18 +63,43 @@ icu_libs = ['icudata', 'icui18n', 'icuuc', 'icuio']
 icu_cflags = []
 if iswindows:
     icu_libs = ['icudt', 'icuin', 'icuuc', 'icuio']
-if isosx:
-    icu_libs = ['icucore']
-    icu_cflags = ['-DU_DISABLE_RENAMING'] # Needed to use system libicucore.dylib
 
 extensions = [
+
+    Extension('hunspell',
+              ['hunspell/'+x for x in
+                'affentry.cxx affixmgr.cxx csutil.cxx dictmgr.cxx filemgr.cxx hashmgr.cxx hunspell.cxx phonet.cxx replist.cxx suggestmgr.cxx'.split()
+                ] + ['calibre/utils/spell/hunspell_wrapper.cpp',],
+              inc_dirs=['hunspell'],
+              cflags='/DHUNSPELL_STATIC /D_CRT_SECURE_NO_WARNINGS /DUNICODE /D_UNICODE'.split() if iswindows else ['-DHUNSPELL_STATIC'],
+              optimize_level=2,
+              ),
+
+    Extension('_regex',
+              ['regex/_regex.c', 'regex/_regex_unicode.c'],
+              headers=['regex/_regex.h'],
+              optimize_level=2,
+              ),
 
     Extension('speedup',
         ['calibre/utils/speedup.c'],
         ),
 
+    Extension('html',
+        ['calibre/gui2/tweak_book/editor/syntax/html.c'],
+        ),
+
+    Extension('tokenizer',
+        ['tinycss/tokenizer.c'],
+        ),
+
+    Extension('_patiencediff_c',
+        ['calibre/gui2/tweak_book/diff/_patiencediff_c.c'],
+        ),
+
     Extension('icu',
         ['calibre/utils/icu.c'],
+        headers=['calibre/utils/icu_calibre_utils.h'],
         libraries=icu_libs,
         lib_dirs=icu_lib_dirs,
         inc_dirs=icu_inc_dirs,
@@ -107,7 +130,8 @@ extensions = [
         headers=['calibre/utils/magick/magick_constants.h'],
         libraries=magick_libs,
         lib_dirs=magick_lib_dirs,
-        inc_dirs=magick_inc_dirs
+        inc_dirs=magick_inc_dirs,
+        cflags=['-DMAGICKCORE_QUANTUM_DEPTH=16', '-DMAGICKCORE_HDRI_ENABLE=0']
         ),
 
     Extension('lzx',
@@ -127,7 +151,7 @@ extensions = [
 
     Extension('freetype',
         ['calibre/utils/fonts/freetype.cpp'],
-        inc_dirs = ft_inc_dirs,
+        inc_dirs=ft_inc_dirs,
         libraries=ft_libs,
         lib_dirs=ft_lib_dirs),
 
@@ -153,6 +177,20 @@ extensions = [
     Extension('cPalmdoc',
         ['calibre/ebooks/compression/palmdoc.c']),
 
+    Extension('bzzdec',
+        ['calibre/ebooks/djvu/bzzdecoder.c'],
+        inc_dirs=(['calibre/utils/chm'] if iswindows else [])  # For stdint.h
+    ),
+
+    Extension('matcher',
+        ['calibre/utils/matcher.c'],
+        headers=['calibre/utils/icu_calibre_utils.h'],
+        libraries=icu_libs,
+        lib_dirs=icu_lib_dirs,
+        cflags=icu_cflags,
+        inc_dirs=icu_inc_dirs
+    ),
+
     Extension('podofo',
                     [
                         'calibre/utils/podofo/utils.cpp',
@@ -171,23 +209,24 @@ extensions = [
 
     Extension('pictureflow',
                 ['calibre/gui2/pictureflow/pictureflow.cpp'],
-                inc_dirs = ['calibre/gui2/pictureflow'],
-                headers = ['calibre/gui2/pictureflow/pictureflow.h'],
-                sip_files = ['calibre/gui2/pictureflow/pictureflow.sip']
+                inc_dirs=['calibre/gui2/pictureflow'],
+                headers=['calibre/gui2/pictureflow/pictureflow.h'],
+                sip_files=['calibre/gui2/pictureflow/pictureflow.sip']
                 ),
 
     Extension('progress_indicator',
                 ['calibre/gui2/progress_indicator/QProgressIndicator.cpp'],
-                inc_dirs = ['calibre/gui2/progress_indicator'],
-                headers = ['calibre/gui2/progress_indicator/QProgressIndicator.h'],
-                sip_files = ['calibre/gui2/progress_indicator/QProgressIndicator.sip']
+                inc_dirs=['calibre/gui2/progress_indicator'],
+                headers=['calibre/gui2/progress_indicator/QProgressIndicator.h'],
+                sip_files=['calibre/gui2/progress_indicator/QProgressIndicator.sip']
                 ),
 
     Extension('qt_hack',
                 ['calibre/ebooks/pdf/render/qt_hack.cpp'],
-                inc_dirs = qt_private_inc + ['calibre/ebooks/pdf/render', 'qt-harfbuzz/src'],
-                headers = ['calibre/ebooks/pdf/render/qt_hack.h'],
-                sip_files = ['calibre/ebooks/pdf/render/qt_hack.sip']
+                inc_dirs=['calibre/ebooks/pdf/render'],
+                headers=['calibre/ebooks/pdf/render/qt_hack.h'],
+                qt_private=['core', 'gui'],
+                sip_files=['calibre/ebooks/pdf/render/qt_hack.sip']
                 ),
 
     Extension('unrar',
@@ -200,7 +239,7 @@ extensions = [
                volume.o list.o find.o unpack.o cmddata.o filestr.o scantree.o
                '''.split()] + ['calibre/utils/unrar.cpp'],
               inc_dirs=['unrar'],
-              cflags = [('/' if iswindows else '-') + x for x in (
+              cflags=[('/' if iswindows else '-') + x for x in (
                   'DSILENT', 'DRARDLL', 'DUNRAR')] + (
                   [] if iswindows else ['-D_FILE_OFFSET_BITS=64',
                                         '-D_LARGEFILE_SOURCE']),
@@ -230,7 +269,6 @@ if iswindows:
                 'calibre/devices/mtp/windows/global.h',
             ],
             libraries=['ole32', 'oleaut32', 'portabledeviceguids', 'user32'],
-            # needs_ddk=True,
             cflags=['/X']
             ),
         Extension('winfonts',
@@ -269,9 +307,10 @@ if islinux or isosx:
 if isunix:
     cc = os.environ.get('CC', 'gcc')
     cxx = os.environ.get('CXX', 'g++')
+    debug = ''
+    # debug = '-ggdb'
     cflags = os.environ.get('OVERRIDE_CFLAGS',
-        # '-Wall -DNDEBUG -ggdb -fno-strict-aliasing -pipe')
-        '-Wall -DNDEBUG -fno-strict-aliasing -pipe')
+        '-Wall -DNDEBUG %s -fno-strict-aliasing -pipe' % debug)
     cflags = shlex.split(cflags) + ['-fPIC']
     ldflags = os.environ.get('OVERRIDE_LDFLAGS', '-Wall')
     ldflags = shlex.split(ldflags)
@@ -293,23 +332,17 @@ if isbsd:
 
 
 if isosx:
-    x, p = ('i386', 'x86_64')
-    archs = ['-arch', x, '-arch', p, '-isysroot',
-                OSX_SDK]
     cflags.append('-D_OSX')
-    cflags.extend(archs)
-    ldflags.extend(archs)
     ldflags.extend('-bundle -undefined dynamic_lookup'.split())
     cflags.extend(['-fno-common', '-dynamic'])
     cflags.append('-I'+sysconfig.get_python_inc())
-
 
 if iswindows:
     cc = cxx = msvc.cc
     cflags = '/c /nologo /MD /W3 /EHsc /DNDEBUG'.split()
     ldflags = '/DLL /nologo /INCREMENTAL:NO /NODEFAULTLIB:libcmt.lib'.split()
-    #cflags = '/c /nologo /Ox /MD /W3 /EHsc /Zi'.split()
-    #ldflags = '/DLL /nologo /INCREMENTAL:NO /DEBUG'.split()
+    # cflags = '/c /nologo /Ox /MD /W3 /EHsc /Zi'.split()
+    # ldflags = '/DLL /nologo /INCREMENTAL:NO /DEBUG'.split()
     if is64bit:
         cflags.append('/GS-')
 
@@ -342,12 +375,13 @@ class Build(Command):
            PODOFO_LIB_DIR - podofo library files
 
            QMAKE          - Path to qmake
+           SIP_BIN        - Path to the sip binary
            VS90COMNTOOLS  - Location of Microsoft Visual Studio 9 Tools (windows only)
 
         ''')
 
     def add_options(self, parser):
-        choices = [e.name for e in extensions]+['all', 'style']
+        choices = [e.name for e in extensions]+['all', 'headless']
         parser.add_option('-1', '--only', choices=choices, default='all',
                 help=('Build only the named extension. Available: '+
                     ', '.join(choices)+'. Default:%default'))
@@ -361,8 +395,6 @@ class Build(Command):
         self.obj_dir = os.path.join(os.path.dirname(SRC), 'build', 'objects')
         if not os.path.exists(self.obj_dir):
             os.makedirs(self.obj_dir)
-        if opts.only in {'all', 'style'}:
-            self.build_style(self.j(self.SRC, 'calibre', 'plugins'))
         for ext in extensions:
             if opts.only != 'all' and opts.only != ext.name:
                 continue
@@ -377,10 +409,12 @@ class Build(Command):
                 os.makedirs(self.d(dest))
             self.info('\n####### Building extension', ext.name, '#'*7)
             self.build(ext, dest)
+        if opts.only in {'all', 'headless'}:
+            self.build_headless()
 
     def dest(self, ext):
         ex = '.pyd' if iswindows else '.so'
-        return os.path.join(SRC, 'calibre', 'plugins', ext.name)+ex
+        return os.path.join(SRC, 'calibre', 'plugins', getattr(ext, 'name', ext))+ex
 
     def inc_dirs_to_cflags(self, dirs):
         return ['-I'+x for x in dirs]
@@ -403,28 +437,29 @@ class Build(Command):
         obj_dir = self.j(self.obj_dir, ext.name)
         ext.preflight(obj_dir, compiler, linker, self, cflags, ldflags)
         einc = self.inc_dirs_to_cflags(ext.inc_dirs)
-        if ext.needs_ddk:
-            ddk_flags = ['-I'+x for x in win_ddk]
-            cflags.extend(ddk_flags)
-            ldflags.extend(['/LIBPATH:'+x for x in win_ddk_lib_dirs])
         if not os.path.exists(obj_dir):
             os.makedirs(obj_dir)
+
+        jobs = []
         for src in ext.sources:
             obj = self.j(obj_dir, os.path.splitext(self.b(src))[0]+'.o')
             objects.append(obj)
             if self.newer(obj, [src]+ext.headers):
-                inf = '/Tp' if src.endswith('.cpp') else '/Tc'
+                inf = '/Tp' if src.endswith('.cpp') or src.endswith('.cxx') else '/Tc'
                 sinc = [inf+src] if iswindows else ['-c', src]
                 oinc = ['/Fo'+obj] if iswindows else ['-o', obj]
                 cmd = [compiler] + cflags + ext.cflags + einc + sinc + oinc
-                self.info(' '.join(cmd))
-                self.check_call(cmd)
+                jobs.append(create_job(cmd))
+        if jobs:
+            self.info('Compiling', ext.name)
+            if not parallel_build(jobs, self.info):
+                raise SystemExit(1)
 
         dest = self.dest(ext)
         elib = self.lib_dirs_to_ldflags(ext.lib_dirs)
         xlib = self.libraries_to_ldflags(ext.libraries)
         if self.newer(dest, objects+ext.extra_objs):
-            print 'Linking', ext.name
+            self.info('Linking', ext.name)
             cmd = [linker]
             if iswindows:
                 cmd += ldflags + ext.ldflags + elib + xlib + \
@@ -434,11 +469,6 @@ class Build(Command):
             self.info('\n\n', ' '.join(cmd), '\n\n')
             self.check_call(cmd)
             if iswindows:
-                #manifest = dest+'.manifest'
-                #cmd = [MT, '-manifest', manifest, '-outputresource:%s;2'%dest]
-                #self.info(*cmd)
-                #self.check_call(cmd)
-                #os.remove(manifest)
                 for x in ('.exp', '.lib'):
                     x = os.path.splitext(dest)[0]+x
                     if os.path.exists(x):
@@ -458,149 +488,132 @@ class Build(Command):
             print "Error while executing: %s\n" % (cmdline)
             raise
 
-    def build_style(self, dest):
-        self.info('\n####### Building calibre style', '#'*7)
-        sdir = self.j(self.SRC, 'qtcurve')
-        def path(x):
-            x=self.j(sdir, x)
-            return ('"%s"'%x).replace(os.sep, '/')
-        headers = [
-           "common/colorutils.h",
-           "common/common.h",
-           "common/config_file.h",
-           "style/blurhelper.h",
-           "style/fixx11h.h",
-           "style/pixmaps.h",
-           "style/qtcurve.h",
-           "style/shortcuthandler.h",
-           "style/utils.h",
-           "style/windowmanager.h",
-        ]
-        sources = [
-           "common/colorutils.c",
-           "common/common.c",
-           "common/config_file.c",
-           "style/blurhelper.cpp",
-           "style/qtcurve.cpp",
-           "style/shortcuthandler.cpp",
-           "style/utils.cpp",
-           "style/windowmanager.cpp",
-        ]
-        if not iswindows and not isosx:
-            headers.append( "style/shadowhelper.h")
-            sources.append('style/shadowhelper.cpp')
+    def build_headless(self):
+        if iswindows or isosx:
+            return  # Dont have headless operation on these platforms
+        self.info('\n####### Building headless QPA plugin', '#'*7)
+        a = Extension.absolutize
+        headers = a(['calibre/headless/headless_backingstore.h', 'calibre/headless/headless_integration.h'])
+        sources = a(['calibre/headless/main.cpp', 'calibre/headless/headless_backingstore.cpp', 'calibre/headless/headless_integration.cpp'])
+        others = a(['calibre/headless/headless.json'])
+        target = self.dest('headless')
+        if not self.newer(target, headers + sources + others):
+            return
+        # Arch monkey patches qmake as a result of which it fails to add
+        # glib-2.0 and freetype2 to the list of library dependencies. Compiling QPA
+        # plugins uses the static libQt5PlatformSupport.a which needs glib
+        # to be specified after it for linking to succeed, so we add it to
+        # QMAKE_LIBS_PRIVATE (we cannot use LIBS as that would put -lglib-2.0
+        # before libQt5PlatformSupport.
 
-        pro = textwrap.dedent('''
-        TEMPLATE = lib
-        CONFIG += qt plugin release
-        CONFIG -= embed_manifest_dll
-        VERSION = 1.0.0
-        DESTDIR = .
-        TARGET = calibre
-        QT *= svg
-        INCLUDEPATH *= {conf} {inc}
-        win32-msvc*:DEFINES *= _CRT_SECURE_NO_WARNINGS
-
-        # Force C++ language
-        *g++*:QMAKE_CFLAGS *= -x c++
-        *msvc*:QMAKE_CFLAGS *= -TP
-        *msvc*:QMAKE_CXXFLAGS += /MP
-
-        ''').format(conf=path(''), inc=path('common'))
-        if isosx:
-            pro += '\nCONFIG += x86 x86_64\n'
-        else:
-            pro += '\nunix:QT *= dbus\n'
-
-        for x in headers:
-            pro += 'HEADERS += %s\n'%path(x)
-        for x in sources:
-            pro += 'SOURCES += %s\n'%path(x)
-        odir = self.j(self.d(self.SRC), 'build', 'qtcurve')
-        if not os.path.exists(odir):
-            os.makedirs(odir)
-        ocwd = os.getcwdu()
-        os.chdir(odir)
-        try:
-            if not os.path.exists('qtcurve.pro') or (open('qtcurve.pro',
-                'rb').read() != pro):
-                with open('qtcurve.pro', 'wb') as f:
-                    f.write(pro)
-            qmc = [QMAKE, '-o', 'Makefile']
-            if iswindows:
-                qmc += ['-spec', 'win32-msvc2008']
-            self.check_call(qmc + ['qtcurve.pro'])
-            self.check_call([make]+([] if iswindows else ['-j%d'%(cpu_count()
-                or 1)]))
-            src = (glob.glob('*.so') + glob.glob('release/*.dll') +
-                    glob.glob('*.dylib'))
-            ext = 'pyd' if iswindows else 'so'
-            if not os.path.exists(dest):
-                os.makedirs(dest)
-            shutil.copy2(src[0], self.j(dest, 'calibre_style.'+ext))
-        finally:
-            os.chdir(ocwd)
-
-    def build_qt_objects(self, ext):
-        obj_pat = 'release\\*.obj' if iswindows else '*.o'
-        objects = glob.glob(obj_pat)
-        if not objects or self.newer(objects, ext.sources+ext.headers):
-            archs = 'x86 x86_64'
-            pro = textwrap.dedent('''\
-                TARGET   = %s
-                TEMPLATE = lib
-                HEADERS  = %s
-                SOURCES  = %s
-                VERSION  = 1.0.0
-                CONFIG   += %s
-            ''')%(ext.name, ' '.join(ext.headers), ' '.join(ext.sources), archs)
-            if ext.inc_dirs:
-                idir = ' '.join(ext.inc_dirs)
-                pro += 'INCLUDEPATH = %s\n'%idir
-            pro = pro.replace('\\', '\\\\')
-            open(ext.name+'.pro', 'wb').write(pro)
-            qmc = [QMAKE, '-o', 'Makefile']
-            if iswindows:
-                qmc += ['-spec', 'win32-msvc2008']
-            self.check_call(qmc + [ext.name+'.pro'])
-            self.check_call([make, '-f', 'Makefile'])
-            objects = glob.glob(obj_pat)
-        return list(map(self.a, objects))
-
-    def build_pyqt_extension(self, ext, dest):
-        pyqt_dir = self.j(self.d(self.SRC), 'build', 'pyqt')
-        src_dir = self.j(pyqt_dir, ext.name)
-        qt_dir  = self.j(src_dir, 'qt')
-        if not self.e(qt_dir):
-            os.makedirs(qt_dir)
+        pro = textwrap.dedent(
+        '''\
+            TARGET = headless
+            PLUGIN_TYPE = platforms
+            PLUGIN_CLASS_NAME = HeadlessIntegrationPlugin
+            load(qt_plugin)
+            QT += core-private gui-private platformsupport-private
+            HEADERS = {headers}
+            SOURCES = {sources}
+            OTHER_FILES = {others}
+            DESTDIR = {destdir}
+            CONFIG -= create_cmake  # Prevent qmake from generating a cmake build file which it puts in the calibre src directory
+            QMAKE_LIBS_PRIVATE += {glib} {fontconfig}
+            ''').format(
+                headers=' '.join(headers), sources=' '.join(sources), others=' '.join(others), destdir=self.d(
+                    target), glib=glib_flags, fontconfig=fontconfig_flags)
+        bdir = self.j(self.d(self.SRC), 'build', 'headless')
+        if not os.path.exists(bdir):
+            os.makedirs(bdir)
+        pf = self.j(bdir, 'headless.pro')
+        open(self.j(bdir, '.qmake.conf'), 'wb').close()
+        with open(pf, 'wb') as f:
+            f.write(pro.encode('utf-8'))
         cwd = os.getcwd()
+        os.chdir(bdir)
         try:
-            os.chdir(qt_dir)
-            qt_objects = self.build_qt_objects(ext)
+            self.check_call([QMAKE] + [self.b(pf)])
+            self.check_call([make] + ['-j%d'%(cpu_count or 1)])
         finally:
             os.chdir(cwd)
 
+    def build_sip_files(self, ext, src_dir):
         sip_files = ext.sip_files
         ext.sip_files = []
         sipf = sip_files[0]
         sbf = self.j(src_dir, self.b(sipf)+'.sbf')
         if self.newer(sbf, [sipf]+ext.headers):
-            exe = '.exe' if iswindows else ''
-            cmd = [pyqt.sip_bin+exe, '-w', '-c', src_dir, '-b', sbf, '-I'+\
-                    pyqt.pyqt_sip_dir] + shlex.split(pyqt.pyqt_sip_flags) + [sipf]
+            cmd = [pyqt['sip_bin'], '-w', '-c', src_dir, '-b', sbf, '-I'+
+                    pyqt['pyqt_sip_dir']] + shlex.split(pyqt['sip_flags']) + [sipf]
             self.info(' '.join(cmd))
             self.check_call(cmd)
-        module = self.j(src_dir, self.b(dest))
-        if self.newer(dest, [sbf]+qt_objects):
-            mf = self.j(src_dir, 'Makefile')
-            makefile = QtGuiModuleMakefile(configuration=pyqt, build_file=sbf,
-                    makefile=mf, universal=OSX_SDK, qt=1)
-            makefile.extra_lflags = qt_objects
-            makefile.extra_include_dirs = ext.inc_dirs
-            makefile.generate()
+            self.info('')
+        raw = open(sbf, 'rb').read().decode('utf-8')
+        def read(x):
+            ans = re.search('^%s\s*=\s*(.+)$' % x, raw, flags=re.M).group(1).strip()
+            if x != 'target':
+                ans = ans.split()
+            return ans
+        return {x:read(x) for x in ('target', 'sources', 'headers')}
 
-            self.check_call([make, '-f', mf], cwd=src_dir)
-            shutil.copy2(module, dest)
+    def build_pyqt_extension(self, ext, dest):
+        pyqt_dir = self.j(self.d(self.SRC), 'build', 'pyqt')
+        src_dir = self.j(pyqt_dir, ext.name)
+        if not os.path.exists(src_dir):
+            os.makedirs(src_dir)
+        sip = self.build_sip_files(ext, src_dir)
+        pro = textwrap.dedent(
+        '''\
+        TEMPLATE = lib
+        CONFIG += release plugin
+        QT += widgets
+        TARGET = {target}
+        HEADERS = {headers}
+        SOURCES = {sources}
+        INCLUDEPATH += {sipinc} {pyinc}
+        VERSION = {ver}
+        win32 {{
+            LIBS += {py_lib}
+            TARGET_EXT = .dll
+        }}
+        macx {{
+            QMAKE_LFLAGS += "-undefined dynamic_lookup"
+        }}
+        ''').format(
+            target=sip['target'], headers=' '.join(sip['headers'] + ext.headers), sources=' '.join(ext.sources + sip['sources']),
+            sipinc=pyqt['sip_inc_dir'], pyinc=sysconfig.get_python_inc(), py_lib=py_lib,
+            ver=__version__
+        )
+        for incdir in ext.inc_dirs:
+            pro += '\nINCLUDEPATH += ' + incdir
+        if not iswindows and not isosx:
+            # Ensure that only the init symbol is exported
+            pro += '\nQMAKE_LFLAGS += -Wl,--version-script=%s.exp' % sip['target']
+            with open(os.path.join(src_dir, sip['target'] + '.exp'), 'wb') as f:
+                f.write(('{ global: init%s; local: *; };' % sip['target']).encode('utf-8'))
+        if ext.qt_private_headers:
+            qph = ' '.join(x + '-private' for x in ext.qt_private_headers)
+            pro += '\nQT += ' + qph
+        proname = '%s.pro' % sip['target']
+        with open(os.path.join(src_dir, proname), 'wb') as f:
+            f.write(pro.encode('utf-8'))
+        cwd = os.getcwdu()
+        qmc = []
+        if iswindows:
+            qmc += ['-spec', 'win32-msvc2008']
+        fext = 'dll' if iswindows else 'dylib' if isosx else 'so'
+        name = '%s%s.%s' % ('release/' if iswindows else 'lib', sip['target'], fext)
+        try:
+            os.chdir(src_dir)
+            if self.newer(dest, sip['headers'] + sip['sources'] + ext.sources + ext.headers):
+                self.check_call([QMAKE] + qmc + [proname])
+                self.check_call([make]+([] if iswindows else ['-j%d'%(cpu_count or 1)]))
+                shutil.copy2(os.path.realpath(name), dest)
+                if iswindows:
+                    shutil.copy2(name + '.manifest', dest + '.manifest')
+
+        finally:
+            os.chdir(cwd)
 
     def clean(self):
         for ext in extensions:

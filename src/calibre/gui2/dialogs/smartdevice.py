@@ -5,7 +5,7 @@ from __future__ import (unicode_literals, division, absolute_import,
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 
-from PyQt4.Qt import (QDialog, QLineEdit, Qt)
+from PyQt5.Qt import (QDialog, QLineEdit, Qt)
 
 from calibre.gui2 import error_dialog
 from calibre.gui2.dialogs.smartdevice_ui import Ui_Dialog
@@ -143,7 +143,7 @@ class SmartdeviceDialog(QDialog, Ui_Dialog):
 
         if not self.device_manager.is_running('smartdevice'):
             error_dialog(self, _('Problem starting the wireless device'),
-                _('The wireless device driver did not start. It said "%s"')%message,
+                _('The wireless device driver had problems starting. It said "%s"')%message,
                 show=True)
             self.device_manager.set_option('smartdevice', 'use_fixed_port',
                                            self.orig_fixed_port)

@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import (unicode_literals, division, absolute_import, print_function)
-store_version = 3 # Needed for dynamic plugin loading
+store_version = 5 # Needed for dynamic plugin loading
 
 __license__ = 'GPL 3'
-__copyright__ = '2011-2013, Tomasz Długosz <tomek3d@gmail.com>'
+__copyright__ = '2011-2014, Tomasz Długosz <tomek3d@gmail.com>'
 __docformat__ = 'restructuredtext en'
 
 import re
@@ -13,7 +13,7 @@ from contextlib import closing
 
 from lxml import html
 
-from PyQt4.Qt import QUrl
+from PyQt5.Qt import QUrl
 
 from calibre import browser, url_slash_cleaner
 from calibre.gui2 import open_url
@@ -51,11 +51,11 @@ class EmpikStore(BasicStoreConfig, StorePlugin):
                 if not id:
                     continue
 
-                cover_url = ''.join(data.xpath('.//div[@class="productBox-450Pic"]/a/img/@src'))
+                cover_url = ''.join(data.xpath('.//div[@class="productBox-450Pic"]/a/img/@data-original'))
                 title = ''.join(data.xpath('.//a[@class="productBox-450Title"]/text()'))
                 title = re.sub(r' \(ebook\)', '', title)
                 author = ''.join(data.xpath('.//div[@class="productBox-450Author"]/a/text()'))
-                price = ''.join(data.xpath('.//div[@class="actPrice"]/text()'))
+                price = ''.join(data.xpath('.//span[@class="currentPrice"]/text()'))
                 formats = ''.join(data.xpath('.//div[@class="productBox-450Type"]/text()'))
                 formats = re.sub(r'Ebook *,? *','', formats)
                 formats = re.sub(r'\(.*\)','', formats)

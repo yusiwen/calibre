@@ -5,17 +5,17 @@ __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import re, os, json
+import re, os, json, weakref
 
 from lxml import html
 import sip
 
-from PyQt4.Qt import (QApplication, QFontInfo, QSize, QWidget, QPlainTextEdit,
+from PyQt5.Qt import (QApplication, QFontInfo, QSize, QWidget, QPlainTextEdit,
     QToolBar, QVBoxLayout, QAction, QIcon, Qt, QTabWidget, QUrl, QFormLayout,
-    QSyntaxHighlighter, QColor, QChar, QColorDialog, QMenu, QDialog, QLabel,
+    QSyntaxHighlighter, QColor, QColorDialog, QMenu, QDialog, QLabel,
     QHBoxLayout, QKeySequence, QLineEdit, QDialogButtonBox, QPushButton,
     QCheckBox)
-from PyQt4.QtWebKit import QWebView, QWebPage
+from PyQt5.QtWebKitWidgets import QWebView, QWebPage
 
 from calibre.ebooks.chardet import xml_to_unicode
 from calibre import xml_replace_entities, prepare_string_for_xml
@@ -69,6 +69,7 @@ class EditorWidget(QWebView):  # {{{
 
     def __init__(self, parent=None):
         QWebView.__init__(self, parent)
+        self._parent = weakref.ref(parent)
         self.readonly = False
 
         self.comments_pat = re.compile(r'<!--.*?-->', re.DOTALL)
@@ -210,7 +211,7 @@ class EditorWidget(QWebView):  # {{{
             return
         url = self.parse_link(link)
         if url.isValid():
-            url = unicode(url.toString())
+            url = unicode(url.toString(QUrl.None))
             self.setFocus(Qt.OtherFocusReason)
             if is_image:
                 self.exec_command('insertHTML',
@@ -318,6 +319,9 @@ class EditorWidget(QWebView):  # {{{
         def fget(self):
             ans = u''
             try:
+                if not self.page().mainFrame().documentElement().findFirst('meta[name="calibre-dont-sanitize"]').isNull():
+                    # Bypass cleanup if special meta tag exists
+                    return unicode(self.page().mainFrame().toHtml())
                 check = unicode(self.page().mainFrame().toPlainText()).strip()
                 raw = unicode(self.page().mainFrame().toHtml())
                 raw = xml_to_unicode(raw, strip_encoding_pats=True,
@@ -387,6 +391,11 @@ class EditorWidget(QWebView):  # {{{
         for action in menu.actions():
             if action == paste:
                 menu.insertAction(action, self.pageAction(QWebPage.PasteAndMatchStyle))
+        parent = self._parent()
+        if hasattr(parent, 'toolbars_visible'):
+            vis = parent.toolbars_visible
+            menu.addAction(_('%s toolbars') % (_('Hide') if vis else _('Show')),
+                           (parent.hide_toolbars if vis else parent.show_toolbars))
         menu.exec_(ev.globalPos())
 
 # }}}
@@ -417,7 +426,7 @@ class Highlighter(QSyntaxHighlighter):
 
     def highlightBlock(self, text):
         state = self.previousBlockState()
-        len_ = text.length()
+        len_ = len(text)
         start = 0
         pos = 0
 
@@ -426,7 +435,7 @@ class Highlighter(QSyntaxHighlighter):
             if state == State_Comment:
                 start = pos
                 while pos < len_:
-                    if text.mid(pos, 3) == "-->":
+                    if text[pos:pos+3] == u"-->":
                         pos += 3
                         state = State_Text
                         break
@@ -437,9 +446,9 @@ class Highlighter(QSyntaxHighlighter):
             elif state == State_DocType:
                 start = pos
                 while pos < len_:
-                    ch = text.at(pos)
+                    ch = text[pos]
                     pos += 1
-                    if ch == QChar('>'):
+                    if ch == u'>':
                         state = State_Text
                         break
                 self.setFormat(start, pos - start, self.colors['doctype'])
@@ -448,12 +457,12 @@ class Highlighter(QSyntaxHighlighter):
             elif state == State_TagStart:
                 start = pos + 1
                 while pos < len_:
-                    ch = text.at(pos)
+                    ch = text[pos]
                     pos += 1
-                    if ch == QChar('>'):
+                    if ch == u'>':
                         state = State_Text
                         break
-                    if not ch.isSpace():
+                    if not ch.isspace():
                         pos -= 1
                         state = State_TagName
                         break
@@ -462,13 +471,13 @@ class Highlighter(QSyntaxHighlighter):
             elif state == State_TagName:
                 start = pos
                 while pos < len_:
-                    ch = text.at(pos)
+                    ch = text[pos]
                     pos += 1
-                    if ch.isSpace():
+                    if ch.isspace():
                         pos -= 1
                         state = State_InsideTag
                         break
-                    if ch == QChar('>'):
+                    if ch == u'>':
                         state = State_Text
                         break
                 self.setFormat(start, pos - start, self.colors['tag'])
@@ -478,17 +487,17 @@ class Highlighter(QSyntaxHighlighter):
                 start = pos
 
                 while pos < len_:
-                    ch = text.at(pos)
+                    ch = text[pos]
                     pos += 1
 
-                    if ch == QChar('/'):
+                    if ch == u'/':
                         continue
 
-                    if ch == QChar('>'):
+                    if ch == u'>':
                         state = State_Text
                         break
 
-                    if not ch.isSpace():
+                    if not ch.isspace():
                         pos -= 1
                         state = State_AttributeName
                         break
@@ -498,14 +507,14 @@ class Highlighter(QSyntaxHighlighter):
                 start = pos
 
                 while pos < len_:
-                    ch = text.at(pos)
+                    ch = text[pos]
                     pos += 1
 
-                    if ch == QChar('='):
+                    if ch == u'=':
                         state = State_AttributeValue
                         break
 
-                    if ch in (QChar('>'), QChar('/')):
+                    if ch in (u'>', u'/'):
                         state = State_InsideTag
                         break
 
@@ -517,20 +526,20 @@ class Highlighter(QSyntaxHighlighter):
 
                 # find first non-space character
                 while pos < len_:
-                    ch = text.at(pos)
+                    ch = text[pos]
                     pos += 1
 
                     # handle opening single quote
-                    if ch == QChar("'"):
+                    if ch == u"'":
                         state = State_SingleQuote
                         break
 
                     # handle opening double quote
-                    if ch == QChar('"'):
+                    if ch == u'"':
                         state = State_DoubleQuote
                         break
 
-                    if not ch.isSpace():
+                    if not ch.isspace():
                         break
 
                 if state == State_AttributeValue:
@@ -538,10 +547,10 @@ class Highlighter(QSyntaxHighlighter):
                     # just stop at non-space or tag delimiter
                     start = pos
                     while pos < len_:
-                        ch = text.at(pos)
-                        if ch.isSpace():
+                        ch = text[pos]
+                        if ch.isspace():
                             break
-                        if ch in (QChar('>'), QChar('/')):
+                        if ch in (u'>', u'/'):
                             break
                         pos += 1
                     state = State_InsideTag
@@ -552,9 +561,9 @@ class Highlighter(QSyntaxHighlighter):
                 start = pos
 
                 while pos < len_:
-                    ch = text.at(pos)
+                    ch = text[pos]
                     pos += 1
-                    if ch == QChar("'"):
+                    if ch == u"'":
                         break
 
                 state = State_InsideTag
@@ -566,9 +575,9 @@ class Highlighter(QSyntaxHighlighter):
                 start = pos
 
                 while pos < len_:
-                    ch = text.at(pos)
+                    ch = text[pos]
                     pos += 1
-                    if ch == QChar('"'):
+                    if ch == u'"':
                         break
 
                 state = State_InsideTag
@@ -578,19 +587,19 @@ class Highlighter(QSyntaxHighlighter):
             else:
                 # State_Text and default
                 while pos < len_:
-                    ch = text.at(pos)
-                    if ch == QChar('<'):
-                        if text.mid(pos, 4) == "<!--":
+                    ch = text[pos]
+                    if ch == u'<':
+                        if text[pos:pos+4] == u"<!--":
                             state = State_Comment
                         else:
-                            if text.mid(pos, 9).toUpper() == "<!DOCTYPE":
+                            if text[pos:pos+9].upper() == u"<!DOCTYPE":
                                 state = State_DocType
                             else:
                                 state = State_TagStart
                         break
-                    elif ch == QChar('&'):
+                    elif ch == u'&':
                         start = pos
-                        while pos < len_ and text.at(pos) != QChar(';'):
+                        while pos < len_ and text[pos] != u';':
                             self.setFormat(start, pos - start,
                                     self.colors['entity'])
                             pos += 1
@@ -688,6 +697,9 @@ class Editor(QWidget):  # {{{
         self.code_edit.textChanged.connect(self.code_dirtied)
         self.editor.page().contentsChanged.connect(self.wyswyg_dirtied)
 
+    def set_minimum_height_for_editor(self, val):
+        self.editor.setMinimumHeight(val)
+
     @dynamic_property
     def html(self):
         def fset(self, v):
@@ -720,6 +732,19 @@ class Editor(QWidget):  # {{{
         self.toolbar2.setVisible(False)
         self.toolbar3.setVisible(False)
 
+    def show_toolbars(self):
+        self.toolbar1.setVisible(True)
+        self.toolbar2.setVisible(True)
+        self.toolbar3.setVisible(True)
+
+    @dynamic_property
+    def toolbars_visible(self):
+        def fget(self):
+            return self.toolbar1.isVisible() or self.toolbar2.isVisible() or self.toolbar3.isVisible()
+        def fset(self, val):
+            getattr(self, ('show' if val else 'hide') + '_toolbars')()
+        return property(fget=fget, fset=fset)
+
     def set_readonly(self, what):
         self.editor.set_readonly(what)
 
@@ -733,7 +758,9 @@ if __name__ == '__main__':
     w = Editor()
     w.resize(800, 600)
     w.show()
-    w.html = '<b>testing</b>'
+    w.html = '''<span style="background-color: rgb(0, 255, 255); ">He hadn't
+    set out to have an <em>affair</em>, <span style="font-style:italic; background-color:red">much</span> less a long-term, devoted one.</span>'''
     app.exec_()
     # print w.html
+
 

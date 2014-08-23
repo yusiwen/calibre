@@ -1,7 +1,7 @@
 calibre
 =========
 
-calibre is an e-book manager. It can view, convert and catalog e-books 
+calibre is an e-book manager. It can view, convert, edit and catalog e-books 
 in all of the major e-book formats. It can also talk to e-book reader 
 devices. It can go out to the internet and fetch metadata for your books. 
 It can download newspapers and convert them into e-books for convenient 
@@ -11,7 +11,7 @@ For more information, see the [calibre About page](http://calibre-ebook.com/abou
 
 Screenshots
 -------------
-[Screenshots page](https://calibre-ebook.com/demo)
+[Screenshots page](http://calibre-ebook.com/demo)
 
 Usage
 -------
@@ -29,5 +29,12 @@ Bugs
 ------
 
 Bug reports and feature requests should be made in the calibre bug tracker at [launchpad](https://bugs.launchpad.net/calibre).
-The GitHub bug tracker is only for people contributing code to calibre.
+GitHub is only used for code hosting and pull requests.
+
+Support calibre
+----------------
+
+calibre is a result of the efforts of many volunteers from all over the world.
+If you find it useful, please consider contributing to support its development.
+[Donate to support calibre development](http://calibre-ebook.com/donate).
 

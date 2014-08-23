@@ -809,6 +809,11 @@ class ActionDelete(InterfaceActionBase):
     actual_plugin = 'calibre.gui2.actions.delete:DeleteAction'
     description = _('Delete books from your calibre library or connected device')
 
+class ActionEmbed(InterfaceActionBase):
+    name = 'Embed Metadata'
+    actual_plugin = 'calibre.gui2.actions.embed:EmbedAction'
+    description = _('Embed updated metadata into the actual book files in your calibre library')
+
 class ActionEditMetadata(InterfaceActionBase):
     name = 'Edit Metadata'
     actual_plugin = 'calibre.gui2.actions.edit_metadata:EditMetadataAction'
@@ -885,7 +890,7 @@ class ActionChooseLibrary(InterfaceActionBase):
 class ActionAddToLibrary(InterfaceActionBase):
     name = 'Add To Library'
     actual_plugin = 'calibre.gui2.actions.add_to_library:AddToLibraryAction'
-    description = _('Copy books from the devce to your calibre library')
+    description = _('Copy books from the device to your calibre library')
 
 class ActionEditCollections(InterfaceActionBase):
     name = 'Edit Collections'
@@ -905,7 +910,12 @@ class ActionCopyToLibrary(InterfaceActionBase):
 class ActionTweakEpub(InterfaceActionBase):
     name = 'Tweak ePub'
     actual_plugin = 'calibre.gui2.actions.tweak_epub:TweakEpubAction'
-    description = _('Make small tweaks to epub or htmlz files in your calibre library')
+    description = _('Edit ebooks in the epub or azw3 formats')
+
+class ActionUnpackBook(InterfaceActionBase):
+    name = 'Unpack Book'
+    actual_plugin = 'calibre.gui2.actions.unpack_book:UnpackBookAction'
+    description = _('Make small changes to epub or htmlz files in your calibre library')
 
 class ActionNextMatch(InterfaceActionBase):
     name = 'Next Match'
@@ -957,9 +967,9 @@ plugins += [ActionAdd, ActionFetchAnnotations, ActionGenerateCatalog,
         ActionShowBookDetails,ActionRestart, ActionOpenFolder, ActionConnectShare,
         ActionSendToDevice, ActionHelp, ActionPreferences, ActionSimilarBooks,
         ActionAddToLibrary, ActionEditCollections, ActionMatchBooks, ActionChooseLibrary,
-        ActionCopyToLibrary, ActionTweakEpub, ActionNextMatch, ActionStore,
+        ActionCopyToLibrary, ActionTweakEpub, ActionUnpackBook, ActionNextMatch, ActionStore,
         ActionPluginUpdater, ActionPickRandom, ActionEditToC, ActionSortBy,
-        ActionMarkBooks]
+        ActionMarkBooks, ActionEmbed]
 
 # }}}
 
@@ -1366,6 +1376,7 @@ class StoreCdpStore(StoreBase):
     drm_free_only = True
     headquarters = 'PL'
     formats = ['EPUB', 'MOBI', 'PDF']
+    affiliate = True
 
 class StoreChitankaStore(StoreBase):
     name = u'Моята библиотека'
@@ -1376,15 +1387,6 @@ class StoreChitankaStore(StoreBase):
     drm_free_only = True
     headquarters = 'BG'
     formats = ['FB2', 'EPUB', 'TXT', 'SFB']
-
-class StoreDieselEbooksStore(StoreBase):
-    name = 'Diesel eBooks'
-    description = u'Instant access to over 2.4 million titles from hundreds of publishers including Harlequin, HarperCollins, John Wiley & Sons, McGraw-Hill, Simon & Schuster and Random House.'  # noqa
-    actual_plugin = 'calibre.gui2.store.stores.diesel_ebooks_plugin:DieselEbooksStore'
-
-    headquarters = 'US'
-    formats = ['EPUB', 'PDF']
-    affiliate = True
 
 class StoreEbookNLStore(StoreBase):
     name = 'eBook.nl'
@@ -1434,15 +1436,6 @@ class StoreEbooksGratuitsStore(StoreBase):
 #     formats = ['EPUB', 'PDF']
 #     affiliate = True
 
-class StoreEHarlequinStore(StoreBase):
-    name = 'eHarlequin'
-    description = u'A global leader in series romance and one of the world\'s leading publishers of books for women. Offers women a broad range of reading from romance to bestseller fiction, from young adult novels to erotic literature, from nonfiction to fantasy, from African-American novels to inspirational romance, and more.'  # noqa
-    actual_plugin = 'calibre.gui2.store.stores.eharlequin_plugin:EHarlequinStore'
-
-    headquarters = 'CA'
-    formats = ['EPUB', 'PDF']
-    affiliate = True
-
 class StoreEKnigiStore(StoreBase):
     name = u'еКниги'
     author = 'Alex Stanev'
@@ -1469,16 +1462,6 @@ class StoreFeedbooksStore(StoreBase):
 
     headquarters = 'FR'
     formats = ['EPUB', 'MOBI', 'PDF']
-
-class StoreFoylesUKStore(StoreBase):
-    name = 'Foyles UK'
-    author = 'Charles Haley'
-    description = u'Foyles of London\'s ebook store. Provides extensive range covering all subjects.'
-    actual_plugin = 'calibre.gui2.store.stores.foyles_uk_plugin:FoylesUKStore'
-
-    headquarters = 'UK'
-    formats = ['EPUB', 'PDF']
-    affiliate = True
 
 class StoreGoogleBooksStore(StoreBase):
     name = 'Google Books'
@@ -1594,7 +1577,6 @@ class StoreNookUKStore(StoreBase):
 
     headquarters = 'UK'
     formats = ['NOOK']
-    affiliate = True
 
 class StoreOpenBooksStore(StoreBase):
     name = 'Open Books'
@@ -1735,16 +1717,13 @@ plugins += [
     StoreBiblioStore,
     StoreChitankaStore,
     StoreCdpStore,
-    StoreDieselEbooksStore,
     StoreEbookNLStore,
     StoreEbookpointStore,
     StoreEbookscomStore,
     StoreEbooksGratuitsStore,
-    StoreEHarlequinStore,
     StoreEKnigiStore,
     StoreEmpikStore,
     StoreFeedbooksStore,
-    StoreFoylesUKStore,
     StoreGoogleBooksStore,
     StoreGutenbergStore,
     StoreKoboStore,

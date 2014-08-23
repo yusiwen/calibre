@@ -9,7 +9,7 @@ Module to implement the Cover Flow feature
 
 import sys, os, time
 
-from PyQt4.Qt import (QImage, QSizePolicy, QTimer, QDialog, Qt, QSize, QAction,
+from PyQt5.Qt import (QImage, QSizePolicy, QTimer, QDialog, Qt, QSize, QAction,
         QStackedLayout, QLabel, QByteArray, pyqtSignal, QKeySequence, QFont)
 
 from calibre import plugins
@@ -21,6 +21,7 @@ pictureflow, pictureflowerror = plugins['pictureflow']
 if pictureflow is not None:
 
     class EmptyImageList(pictureflow.FlowImages):
+
         def __init__(self):
             pictureflow.FlowImages.__init__(self)
 
@@ -96,18 +97,24 @@ if pictureflow is not None:
             return ans
 
         def subtitle(self, index):
-            try:
-                return u'\u2605'*self.model.rating(index)
-            except:
-                pass
+            if gprefs['show_rating_in_cover_browser']:
+                try:
+                    return u'\u2605'*self.model.rating(index)
+                except:
+                    pass
             return ''
 
         def reset(self):
+            self.beginResetModel(), self.endResetModel()
+
+        def beginResetModel(self):
             self.dataChanged.emit()
+
+        def endResetModel(self):
+            pass
 
         def image(self, index):
             return self.model.cover(index)
-
 
     class CoverFlow(pictureflow.PictureFlow):
 
@@ -125,6 +132,10 @@ if pictureflow is not None:
                     type=Qt.QueuedConnection)
             self.context_menu = None
             self.setContextMenuPolicy(Qt.DefaultContextMenu)
+            try:
+                self.setPreserveAspectRatio(gprefs['cb_preserve_aspect_ratio'])
+            except AttributeError:
+                pass  # source checkout without updated binary
             if hasattr(self, 'setSubtitleFont'):
                 self.setSubtitleFont(QFont(rating_font()))
             if not gprefs['cover_browser_reflections']:
@@ -143,11 +154,10 @@ if pictureflow is not None:
             return self.minimumSize()
 
         def wheelEvent(self, ev):
-            ev.accept()
-            if ev.delta() < 0:
-                self.showNext()
-            elif ev.delta() > 0:
-                self.showPrevious()
+            d = ev.angleDelta().y()
+            if abs(d) > 0:
+                ev.accept()
+                (self.showNext if d < 0 else self.showPrevious)()
 
         def dataChanged(self):
             self.dc_signal.emit()
@@ -226,7 +236,10 @@ class CBDialog(QDialog):
 
 class CoverFlowMixin(object):
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def init_cover_flow_mixin(self):
         self.cover_flow = None
         if CoverFlow is not None:
             self.cf_last_updated_at = None
@@ -290,7 +303,6 @@ class CoverFlowMixin(object):
                 self.library_view.setCurrentIndex(idx)
                 self.library_view.scroll_to_row(idx.row())
 
-
     def show_cover_browser(self):
         d = CBDialog(self, self.cover_flow)
         d.addAction(self.cb_splitter.action_toggle)
@@ -312,7 +324,6 @@ class CoverFlowMixin(object):
             cbd.accept()
             self.cb_dialog = None
         self.cb_splitter.button.set_state_to_show()
-
 
     def sync_cf_to_listview(self, current, previous):
         if self.cover_flow_sync_flag and self.cover_flow.isVisible() and \
@@ -350,7 +361,7 @@ class CoverFlowMixin(object):
         self.cf_last_updated_at = time.time()
 
 def test():
-    from PyQt4.QtGui import QApplication, QMainWindow
+    from PyQt5.Qt import QApplication, QMainWindow
     app = QApplication([])
     w = QMainWindow()
     cf = CoverFlow()
@@ -369,7 +380,7 @@ def main(args=sys.argv):
     return 0
 
 if __name__ == '__main__':
-    from PyQt4.QtGui import QApplication, QMainWindow
+    from PyQt5.Qt import QApplication, QMainWindow
     app = QApplication([])
     w = QMainWindow()
     cf = CoverFlow()

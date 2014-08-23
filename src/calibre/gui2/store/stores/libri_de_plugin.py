@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import (unicode_literals, division, absolute_import, print_function)
-store_version = 2 # Needed for dynamic plugin loading
+store_version = 4 # Needed for dynamic plugin loading
 
 __license__ = 'GPL 3'
 __copyright__ = '2011, John Schember <john@nachtimwald.com>'
@@ -12,7 +12,7 @@ from contextlib import closing
 
 from lxml import html
 
-from PyQt4.Qt import QUrl
+from PyQt5.Qt import QUrl
 
 from calibre import browser
 from calibre.gui2 import open_url
@@ -25,7 +25,7 @@ class LibreDEStore(BasicStoreConfig, StorePlugin):
 
     def open(self, parent=None, detail_item=None, external=False):
         url = 'http://ad.zanox.com/ppc/?18817073C15644254T'
-        url_details = ('http://ad.zanox.com/ppc/?18817073C15644254T&ULP=[['
+        url_details = ('http://ad.zanox.com/ppc/?18848208C1197627693T&ULP=[['
                        'http://www.ebook.de/shop/action/productDetails?artiId={0}]]')
 
         if external or self.config.get('open_external', False):
@@ -60,7 +60,7 @@ class LibreDEStore(BasicStoreConfig, StorePlugin):
                 id_ = ''.join(details.xpath('./a/@name')).strip()
                 if not id_:
                     continue
-                title = ''.join(details.xpath('.//a[@class="su1_c_l_titel"]/text()')).strip()
+                title = ''.join(details.xpath('./h3[@class="title"]/a/text()')).strip()
 
                 author = ''.join(details.xpath('.//div[@class="author"]/text()')).strip()
                 if author.startswith('von'):

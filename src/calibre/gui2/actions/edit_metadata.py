@@ -8,7 +8,7 @@ __docformat__ = 'restructuredtext en'
 import os, shutil, copy
 from functools import partial
 
-from PyQt4.Qt import QMenu, QModelIndex, QTimer, QIcon
+from PyQt5.Qt import QMenu, QModelIndex, QTimer, QIcon
 
 from calibre.gui2 import error_dialog, Dispatcher, question_dialog, gprefs
 from calibre.gui2.dialogs.metadata_bulk import MetadataBulkDialog
@@ -18,8 +18,12 @@ from calibre.gui2.actions import InterfaceAction
 from calibre.ebooks.metadata import authors_to_string
 from calibre.ebooks.metadata.book.base import Metadata
 from calibre.ebooks.metadata.opf2 import OPF, metadata_to_opf
+from calibre.utils.date import is_date_undefined
 from calibre.utils.icu import sort_key
 from calibre.db.errors import NoSuchFormat
+from calibre.library.comments import merge_comments
+from calibre.ebooks.metadata.sources.prefs import msprefs
+
 
 class EditMetadataAction(InterfaceAction):
 
@@ -146,6 +150,11 @@ class EditMetadataAction(InterfaceAction):
             checkbox_msg = _('Show the &failed books in the main book list '
                     'after updating metadata')
 
+        if getattr(job, 'metadata_and_covers', None) == (False, True):
+            # Only covers, remove failed cover downloads from id_map
+            for book_id in failed_covers:
+                if hasattr(id_map, 'discard'):
+                    id_map.discard(book_id)
         payload = (id_map, tdir, log_file, lm_map,
                 failed_ids.union(failed_covers))
         review_apply = partial(self.apply_downloaded_metadata, True)
@@ -256,9 +265,9 @@ class EditMetadataAction(InterfaceAction):
         if restrict_to_failed:
             db.data.set_marked_ids(failed_ids)
 
-        self.apply_metadata_changes(id_map,
-                callback=partial(self.downloaded_metadata_applied, tdir,
-                    restrict_to_failed))
+        self.apply_metadata_changes(
+            id_map, merge_comments=msprefs['append_comments'],
+            callback=partial(self.downloaded_metadata_applied, tdir, restrict_to_failed))
 
     def downloaded_metadata_applied(self, tdir, restrict_to_failed, *args):
         if restrict_to_failed:
@@ -508,6 +517,10 @@ class EditMetadataAction(InterfaceAction):
         orig_dest_comments = dest_mi.comments
         dest_cover = db.cover(dest_id, index_is_id=True)
         had_orig_cover = bool(dest_cover)
+
+        def is_null_date(x):
+            return x is None or is_date_undefined(x)
+
         for src_id in src_ids:
             src_mi = db.get_metadata(src_id, index_is_id=True)
 
@@ -539,6 +552,8 @@ class EditMetadataAction(InterfaceAction):
             if not dest_mi.series:
                 dest_mi.series = src_mi.series
                 dest_mi.series_index = src_mi.series_index
+            if is_null_date(dest_mi.pubdate) and not is_null_date(src_mi.pubdate):
+                dest_mi.pubdate = src_mi.pubdate
 
             src_identifiers = db.get_identifiers(src_id, index_is_id=True)
             src_identifiers.update(merged_identifiers)
@@ -602,7 +617,7 @@ class EditMetadataAction(InterfaceAction):
 
     # Apply bulk metadata changes {{{
     def apply_metadata_changes(self, id_map, title=None, msg='', callback=None,
-            merge_tags=True):
+            merge_tags=True, merge_comments=False):
         '''
         Apply the metadata changes in id_map to the database synchronously
         id_map must be a mapping of ids to Metadata objects. Set any fields you
@@ -634,7 +649,8 @@ class EditMetadataAction(InterfaceAction):
                     cancelable=False)
             self.apply_pd.setModal(True)
             self.apply_pd.show()
-        self._am_merge_tags = True
+        self._am_merge_tags = merge_tags
+        self._am_merge_comments = merge_comments
         self.do_one_apply()
 
     def do_one_apply(self):
@@ -659,7 +675,7 @@ class EditMetadataAction(InterfaceAction):
         self.apply_current_idx += 1
         if self.apply_pd is not None:
             self.apply_pd.value += 1
-        QTimer.singleShot(50, self.do_one_apply)
+        QTimer.singleShot(5, self.do_one_apply)
 
     def apply_mi(self, book_id, mi):
         db = self.gui.current_db
@@ -679,6 +695,10 @@ class EditMetadataAction(InterfaceAction):
                     tags = [x.strip() for x in old_tags.split(',')] + (
                             mi.tags if mi.tags else [])
                     mi.tags = list(set(tags))
+            if self._am_merge_comments:
+                old_comments = db.new_api.field_for('comments', book_id)
+                if old_comments and mi.comments and old_comments != mi.comments:
+                    mi.comments = merge_comments(old_comments, mi.comments)
             db.set_metadata(book_id, mi, commit=False, set_title=set_title,
                     set_authors=set_authors, notify=False)
             self.applied_ids.add(book_id)

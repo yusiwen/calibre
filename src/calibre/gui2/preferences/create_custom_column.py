@@ -6,7 +6,7 @@ __copyright__ = '2010, Kovid Goyal <kovid at kovidgoyal.net>'
 import re
 from functools import partial
 
-from PyQt4.Qt import QDialog, Qt, QListWidgetItem, QVariant, QColor, QIcon
+from PyQt5.Qt import QDialog, Qt, QListWidgetItem, QColor, QIcon
 
 from calibre.gui2.preferences.create_custom_column_ui import Ui_QCreateCustomColumn
 from calibre.gui2 import error_dialog
@@ -84,10 +84,15 @@ class CreateCustomColumn(QDialog, Ui_QCreateCustomColumn):
         for t in self.column_types:
             self.column_type_box.addItem(self.column_types[t]['text'])
         self.column_type_box.currentIndexChanged.connect(self.datatype_changed)
+
+        all_colors = [unicode(s) for s in list(QColor.colorNames())]
+        self.enum_colors_label.setToolTip('<p>' + ', '.join(all_colors) + '</p>')
+
         if not self.editing_col:
             self.datatype_changed()
             self.exec_()
             return
+
         self.setWindowTitle(_('Edit a custom column'))
         self.heading_label.setText(_('Edit a custom column'))
         self.shortcuts.setVisible(False)
@@ -96,7 +101,7 @@ class CreateCustomColumn(QDialog, Ui_QCreateCustomColumn):
             self.simple_error(_('No column selected'),
                     _('No column has been selected'))
             return
-        col = unicode(parent.opt_columns.item(idx).data(Qt.UserRole).toString())
+        col = unicode(parent.opt_columns.item(idx).data(Qt.UserRole) or '')
         if col not in parent.custcols:
             self.simple_error('', _('Selected column is not a user-defined column'))
             return
@@ -140,9 +145,6 @@ class CreateCustomColumn(QDialog, Ui_QCreateCustomColumn):
             self.use_decorations.setChecked(c['display'].get('use_decorations', False))
         elif ct == '*text':
             self.is_names.setChecked(c['display'].get('is_names', False))
-
-        all_colors = [unicode(s) for s in list(QColor.colorNames())]
-        self.enum_colors_label.setToolTip('<p>' + ', '.join(all_colors) + '</p>')
 
         self.composite_contains_html.setToolTip('<p>' +
                 _('If checked, this column will be displayed as HTML in '
@@ -295,7 +297,7 @@ class CreateCustomColumn(QDialog, Ui_QCreateCustomColumn):
                 return self.simple_error('', _('The colors box must be empty or '
                 'contain the same number of items as the value box'))
             for tc in c:
-                if tc not in QColor.colorNames():
+                if tc not in QColor.colorNames() and not re.match("#(?:[0-9a-f]{3}){1,4}",tc,re.I):
                     return self.simple_error('',
                             _('The color {0} is unknown').format(tc))
 
@@ -322,8 +324,8 @@ class CreateCustomColumn(QDialog, Ui_QCreateCustomColumn):
                     'is_multiple':is_multiple,
                 }
             item = QListWidgetItem(col_heading, self.parent.opt_columns)
-            item.setData(Qt.UserRole, QVariant(key))
-            item.setData(Qt.DecorationRole, QVariant(QIcon(I('column.png'))))
+            item.setData(Qt.UserRole, (key))
+            item.setData(Qt.DecorationRole, (QIcon(I('column.png'))))
             item.setFlags(Qt.ItemIsEnabled|Qt.ItemIsUserCheckable|Qt.ItemIsSelectable)
             item.setCheckState(Qt.Checked)
         else:

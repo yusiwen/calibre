@@ -13,6 +13,8 @@ from functools import partial
 from dateutil.tz import tzlocal, tzutc, EPOCHORDINAL
 
 from calibre import strftime
+from calibre.constants import iswindows, isosx, plugins
+from calibre.utils.localization import lcdata
 
 class SafeLocalTimeZone(tzlocal):
 
@@ -51,24 +53,47 @@ class SafeLocalTimeZone(tzlocal):
             pass
         return False
 
-def compute_locale_info_for_parse_date():
-    try:
-        dt = datetime.strptime('1/5/2000', "%x")
-    except:
-        try:
-            dt = datetime.strptime('1/5/01', '%x')
-        except:
-            return False
-    if dt.month == 5:
-        return True
-    return False
-
-parse_date_day_first = compute_locale_info_for_parse_date()
 utc_tz = _utc_tz = tzutc()
 local_tz = _local_tz = SafeLocalTimeZone()
 
+# When parsing ambiguous dates that could be either dd-MM Or MM-dd use the
+# user's locale preferences
+if iswindows:
+    import ctypes
+    LOCALE_SSHORTDATE, LOCALE_USER_DEFAULT = 0x1f, 0
+    buf = ctypes.create_string_buffer(b'\0', 255)
+    try:
+        ctypes.windll.kernel32.GetLocaleInfoA(LOCALE_USER_DEFAULT, LOCALE_SSHORTDATE, buf, 255)
+        parse_date_day_first = buf.value.index(b'd') < buf.value.index(b'M')
+    except:
+        parse_date_day_first = False
+    del ctypes, LOCALE_SSHORTDATE, buf, LOCALE_USER_DEFAULT
+elif isosx:
+    try:
+        date_fmt = plugins['usbobserver'][0].date_format()
+        parse_date_day_first = date_fmt.index(u'd') < date_fmt.index(u'M')
+    except:
+        parse_date_day_first = False
+else:
+    try:
+        def first_index(raw, queries):
+            for q in queries:
+                try:
+                    return raw.index(q)
+                except ValueError:
+                    pass
+            return -1
+
+        import locale
+        raw = locale.nl_langinfo(locale.D_FMT)
+        parse_date_day_first = first_index(raw, ('%d', '%a', '%A')) < first_index(raw, ('%m', '%b', '%B'))
+        del raw, first_index
+    except:
+        parse_date_day_first = False
+
 UNDEFINED_DATE = datetime(101,1,1, tzinfo=utc_tz)
 DEFAULT_DATE = datetime(2000,1,1, tzinfo=utc_tz)
+EPOCH = datetime(1970, 1, 1, tzinfo=_utc_tz)
 
 def is_date_undefined(qt_or_dt):
     d = qt_or_dt
@@ -210,19 +235,27 @@ def now():
 def utcnow():
     return datetime.utcnow().replace(tzinfo=_utc_tz)
 
+
 def utcfromtimestamp(stamp):
     try:
         return datetime.utcfromtimestamp(stamp).replace(tzinfo=_utc_tz)
     except ValueError:
-        # Raised if stamp if out of range for the platforms gmtime function
-        # We print the error for debugging, but otherwise ignore it
-        import traceback
-        traceback.print_exc()
-        return utcnow()
+        # Raised if stamp is out of range for the platforms gmtime function
+        # For example, this happens with negative values on windows
+        try:
+            return EPOCH + timedelta(seconds=stamp)
+        except (ValueError, OverflowError):
+            # datetime can only represent years between 1 and 9999
+            import traceback
+            traceback.print_exc()
+    return utcnow()
+
+def timestampfromdt(dt, assume_utc=True):
+    return (as_utc(dt, assume_utc=assume_utc) - EPOCH).total_seconds()
 
 # Format date functions
 
-def fd_format_hour(dt, strf, ampm, hr):
+def fd_format_hour(dt, ampm, hr):
     l = len(hr)
     h = dt.hour
     if ampm:
@@ -231,45 +264,41 @@ def fd_format_hour(dt, strf, ampm, hr):
         return '%d'%h
     return '%02d'%h
 
-def fd_format_minute(dt, strf, ampm, min):
+def fd_format_minute(dt, ampm, min):
     l = len(min)
     if l == 1:
         return '%d'%dt.minute
     return '%02d'%dt.minute
 
-def fd_format_second(dt, strf, ampm, sec):
+def fd_format_second(dt, ampm, sec):
     l = len(sec)
     if l == 1:
         return '%d'%dt.second
     return '%02d'%dt.second
 
-def fd_format_ampm(dt, strf, ampm, ap):
-    res = strf('%p')
+def fd_format_ampm(dt, ampm, ap):
+    res = strftime('%p', t=dt.timetuple())
     if ap == 'AP':
         return res
     return res.lower()
 
-def fd_format_day(dt, strf, ampm, dy):
+def fd_format_day(dt, ampm, dy):
     l = len(dy)
     if l == 1:
         return '%d'%dt.day
     if l == 2:
         return '%02d'%dt.day
-    if l == 3:
-        return strf('%a')
-    return strf('%A')
+    return lcdata['abday' if l == 3 else 'day'][(dt.weekday() + 1) % 7]
 
-def fd_format_month(dt, strf, ampm, mo):
+def fd_format_month(dt, ampm, mo):
     l = len(mo)
     if l == 1:
         return '%d'%dt.month
     if l == 2:
         return '%02d'%dt.month
-    if l == 3:
-        return strf('%b')
-    return strf('%B')
+    return lcdata['abmon' if l == 3 else 'mon'][dt.month - 1]
 
-def fd_format_year(dt, strf, ampm, yr):
+def fd_format_year(dt, ampm, yr):
     if len(yr) == 2:
         return '%02d'%(dt.year % 100)
     return '%04d'%dt.year
@@ -284,11 +313,11 @@ fd_function_index = {
         'a': fd_format_ampm,
         'A': fd_format_ampm,
     }
-def fd_repl_func(dt, strf, ampm, mo):
+def fd_repl_func(dt, ampm, mo):
     s = mo.group(0)
     if not s:
         return ''
-    return fd_function_index[s[0]](dt, strf, ampm, s)
+    return fd_function_index[s[0]](dt, ampm, s)
 
 def format_date(dt, format, assume_utc=False, as_utc=False):
     ''' Return a date formatted as a string using a subset of Qt's formatting codes '''
@@ -310,8 +339,7 @@ def format_date(dt, format, assume_utc=False, as_utc=False):
     if dt == UNDEFINED_DATE:
         return ''
 
-    strf = partial(strftime, t=dt.timetuple())
-    repl_func = partial(fd_repl_func, dt, strf, 'ap' in format.lower())
+    repl_func = partial(fd_repl_func, dt, 'ap' in format.lower())
     return re.sub(
         '(s{1,2})|(m{1,2})|(h{1,2})|(ap)|(AP)|(d{1,4}|M{1,4}|(?:yyyy|yy))',
         repl_func, format)

@@ -56,7 +56,7 @@ class Develop(Command):
     short_description = 'Setup a development environment for calibre'
     MODE = 0o755
 
-    sub_commands = ['build', 'resources', 'iso639', 'gui',]
+    sub_commands = ['build', 'resources', 'iso639', 'iso3166', 'gui',]
 
     def add_postinstall_options(self, parser):
         parser.add_option('--make-errors-fatal', action='store_true', default=False,
@@ -268,10 +268,10 @@ class Sdist(Command):
             os.makedirs(self.d(self.DEST))
         tdir = tempfile.mkdtemp()
         atexit.register(shutil.rmtree, tdir)
-        tdir = self.j(tdir, 'calibre')
+        tdir = self.j(tdir, 'calibre-%s' % __version__)
         self.info('\tRunning git export...')
         os.mkdir(tdir)
-        subprocess.check_call('git archive master | tar -x -C ' + tdir, shell=True)
+        subprocess.check_call('git archive HEAD | tar -x -C ' + tdir, shell=True)
         for x in open('.gitignore').readlines():
             if not x.startswith('resources/'):
                 continue
@@ -293,19 +293,24 @@ class Sdist(Command):
                 dest = os.path.join(tdir, self.d(f))
                 shutil.copy2(f, dest)
 
-        tbase = self.j(self.d(self.d(self.SRC)), 'calibre-translations')
-        for x in ('setup/iso_639', 'src/calibre/translations'):
-            destdir = self.j(tdir, x)
+        tbase = self.j(self.d(self.SRC), 'translations')
+        for x in ('iso_639', 'calibre'):
+            destdir = self.j(tdir, 'translations', x)
             if not os.path.exists(destdir):
-                os.mkdir(destdir)
-            for y in glob.glob(self.j(tbase, x, '*')):
+                os.makedirs(destdir)
+            for y in glob.glob(self.j(tbase, x, '*.po')) + glob.glob(self.j(tbase, x, '*.pot')):
                 dest = self.j(destdir, self.b(y))
-                if y.rpartition('.')[-1] not in {'pyc', 'pyo'} and not os.path.exists(dest):
+                if not os.path.exists(dest):
                     shutil.copy2(y, dest)
+        shutil.copytree(self.j(tbase, 'manual'), self.j(tdir, 'translations', 'manual'))
 
         self.info('\tCreating tarfile...')
-        subprocess.check_call(['tar', '-cJf', self.a(self.DEST),
-            'calibre'], cwd=self.d(tdir))
+        dest = self.DEST.rpartition('.')[0]
+        subprocess.check_call(['tar', '-cf', self.a(dest), 'calibre-%s' % __version__], cwd=self.d(tdir))
+        self.info('\tCompressing tarfile...')
+        if os.path.exists(self.a(self.DEST)):
+            os.remove(self.a(self.DEST))
+        subprocess.check_call(['xz', '-9', self.a(dest)])
 
     def clean(self):
         if os.path.exists(self.DEST):

@@ -9,7 +9,7 @@ __docformat__ = 'restructuredtext en'
 
 import weakref
 
-from PyQt4.Qt import (QWidget, QListWidgetItem, Qt, QToolButton, QLabel,
+from PyQt5.Qt import (QWidget, QListWidgetItem, Qt, QToolButton, QLabel,
         QTabWidget, QGridLayout, QListWidget, QIcon, QLineEdit, QVBoxLayout,
         QPushButton, QGroupBox, QScrollArea, QHBoxLayout, QComboBox,
         pyqtSignal, QSizePolicy, QDialog, QDialogButtonBox, QPlainTextEdit,
@@ -49,7 +49,7 @@ class FormatsConfig(QWidget): # {{{
 
     @property
     def format_map(self):
-        return [unicode(self.f.item(i).data(Qt.UserRole).toString()) for i in
+        return [unicode(self.f.item(i).data(Qt.UserRole) or '') for i in
                 xrange(self.f.count()) if self.f.item(i).checkState()==Qt.Checked]
 
     def validate(self):
@@ -183,13 +183,13 @@ class IgnoredDevices(QWidget): # {{{
 
     @property
     def blacklist(self):
-        return [unicode(self.f.item(i).data(Qt.UserRole).toString()) for i in
+        return [unicode(self.f.item(i).data(Qt.UserRole) or '') for i in
                 xrange(self.f.count()) if self.f.item(i).checkState()==Qt.Checked]
 
     def ignore_device(self, snum):
         for i in xrange(self.f.count()):
             i = self.f.item(i)
-            c = unicode(i.data(Qt.UserRole).toString())
+            c = unicode(i.data(Qt.UserRole) or '')
             if c == snum:
                 i.setCheckState(Qt.Checked)
                 break
@@ -262,7 +262,7 @@ class Rule(QWidget):
         folder = unicode(self.folder.text()).strip()
         if folder:
             return (
-                unicode(self.fmt.itemData(self.fmt.currentIndex()).toString()),
+                unicode(self.fmt.itemData(self.fmt.currentIndex()) or ''),
                 folder
                 )
         return None

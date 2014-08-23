@@ -1,18 +1,19 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import (unicode_literals, division, absolute_import, print_function)
-store_version = 2 # Needed for dynamic plugin loading
+store_version = 4 # Needed for dynamic plugin loading
 
 __license__ = 'GPL 3'
-__copyright__ = '2013, Tomasz Długosz <tomek3d@gmail.com>'
+__copyright__ = '2013-2014, Tomasz Długosz <tomek3d@gmail.com>'
 __docformat__ = 'restructuredtext en'
 
 import urllib
+from base64 import b64encode
 from contextlib import closing
 
 from lxml import html
 
-from PyQt4.Qt import QUrl
+from PyQt5.Qt import QUrl
 
 from calibre import browser, url_slash_cleaner
 from calibre.gui2 import open_url
@@ -24,24 +25,30 @@ from calibre.gui2.store.web_store_dialog import WebStoreDialog
 class CdpStore(BasicStoreConfig, StorePlugin):
 
     def open(self, parent=None, detail_item=None, external=False):
+        aff_root = 'https://www.a4b-tracking.com/pl/stat-click-text-link/47/58/'
 
         url = 'https://cdp.pl/ksiazki'
 
+        aff_url = aff_root + str(b64encode(url))
+
+        detail_url = None
+        if detail_item:
+            detail_url = aff_root + str(b64encode(detail_item))
+
         if external or self.config.get('open_external', False):
-            open_url(QUrl(url_slash_cleaner(detail_item if detail_item else url)))
+            open_url(QUrl(url_slash_cleaner(detail_url if detail_url else aff_url)))
         else:
-            d = WebStoreDialog(self.gui, url, parent, detail_item if detail_item else url)
+            d = WebStoreDialog(self.gui, url, parent, detail_url if detail_url else aff_url)
             d.setWindowTitle(self.name)
             d.set_tags(self.config.get('tags', ''))
             d.exec_()
 
     def search(self, query, max_results=10, timeout=60):
-        page=1
 
         br = browser()
+        page=1
 
         counter = max_results
-
         while counter:
             with closing(br.open(u'https://cdp.pl/products/search?utf8=✓&keywords=' + urllib.quote_plus(query) + '&page=' + str(page), timeout=timeout)) as f:
                 doc = html.fromstring(f.read())
@@ -58,7 +65,7 @@ class CdpStore(BasicStoreConfig, StorePlugin):
                     cover_url = ''.join(data.xpath('.//div[@class="product-image"]/a[1]/@data-background'))
                     cover_url = cover_url.split('\'')[1]
                     title = ''.join(data.xpath('.//div[@class="product-description"]/h2/a/text()'))
-                    author = ''.join(data.xpath('.//div[@class="product-description"]//ul[@class="taxons"]/li[2]/a/text()'))
+                    author = ''.join(data.xpath('.//div[@class="product-description"]//ul[@class="taxons"]/li[@class="author"]/a/text()'))
                     price = ''.join(data.xpath('.//span[@itemprop="price"]/text()'))
 
                     counter -= 1

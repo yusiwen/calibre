@@ -7,14 +7,14 @@ __docformat__ = 'restructuredtext en'
 
 import sys
 
-from PyQt4.Qt import (QDialog, QIcon, QApplication, QSize, QKeySequence,
+from PyQt5.Qt import (QDialog, QIcon, QApplication, QSize, QKeySequence,
     QAction, Qt, QTextBrowser, QDialogButtonBox, QVBoxLayout, QGridLayout,
     QLabel, QPlainTextEdit, QTextDocument, QCheckBox, pyqtSignal)
 
 from calibre.constants import __version__, isfrozen
 from calibre.gui2.dialogs.message_box_ui import Ui_Dialog
 
-class MessageBox(QDialog, Ui_Dialog): # {{{
+class MessageBox(QDialog, Ui_Dialog):  # {{{
 
     ERROR = 0
     WARNING = 1
@@ -25,7 +25,8 @@ class MessageBox(QDialog, Ui_Dialog): # {{{
                  det_msg='',
                  q_icon=None,
                  show_copy_button=True,
-                 parent=None, default_yes=True):
+                 parent=None, default_yes=True,
+                 yes_text=None, no_text=None, yes_icon=None, no_icon=None):
         QDialog.__init__(self, parent)
         if q_icon is None:
             icon = {
@@ -71,6 +72,14 @@ class MessageBox(QDialog, Ui_Dialog): # {{{
             self.bb.button(self.bb.Yes if default_yes else self.bb.No
                     ).setDefault(True)
             self.default_yes = default_yes
+            if yes_text is not None:
+                self.bb.button(self.bb.Yes).setText(yes_text)
+            if no_text is not None:
+                self.bb.button(self.bb.No).setText(no_text)
+            if yes_icon is not None:
+                self.bb.button(self.bb.Yes).setIcon(yes_icon if isinstance(yes_icon, QIcon) else QIcon(I(yes_icon)))
+            if no_icon is not None:
+                self.bb.button(self.bb.No).setIcon(yes_icon if isinstance(no_icon, QIcon) else QIcon(I(no_icon)))
         else:
             self.bb.button(self.bb.Ok).setDefault(True)
 
@@ -78,7 +87,6 @@ class MessageBox(QDialog, Ui_Dialog): # {{{
             self.det_msg_toggle.setVisible(False)
 
         self.do_resize()
-
 
     def toggle_det_msg(self, *args):
         vis = unicode(self.det_msg_toggle.text()) == self.hide_det_msg
@@ -109,7 +117,7 @@ class MessageBox(QDialog, Ui_Dialog): # {{{
                 self.bb.button(self.bb.Yes if self.default_yes else self.bb.No
                         ).setFocus(Qt.OtherFocusReason)
             except:
-                pass# Buttons were changed
+                pass  # Buttons were changed
         else:
             self.bb.button(self.bb.Ok).setFocus(Qt.OtherFocusReason)
         return ret
@@ -124,7 +132,7 @@ class MessageBox(QDialog, Ui_Dialog): # {{{
         self.do_resize()
 # }}}
 
-class ViewLog(QDialog): # {{{
+class ViewLog(QDialog):  # {{{
 
     def __init__(self, title, html, parent=None):
         QDialog.__init__(self, parent)
@@ -156,7 +164,7 @@ class ViewLog(QDialog): # {{{
 
 _proceed_memory = []
 
-class ProceedNotification(MessageBox): # {{{
+class ProceedNotification(MessageBox):  # {{{
 
     '''
     WARNING: This class is deprecated. DO not use it as some users have
@@ -227,7 +235,7 @@ class ProceedNotification(MessageBox): # {{{
 
 # }}}
 
-class ErrorNotification(MessageBox): # {{{
+class ErrorNotification(MessageBox):  # {{{
 
     def __init__(self, html_log, log_viewer_title, title, msg,
             det_msg='', show_copy_button=False, parent=None):
@@ -267,7 +275,7 @@ class ErrorNotification(MessageBox): # {{{
         _proceed_memory.remove(self)
 # }}}
 
-class JobError(QDialog): # {{{
+class JobError(QDialog):  # {{{
 
     WIDTH = 600
     do_pop = pyqtSignal()
@@ -343,7 +351,7 @@ class JobError(QDialog): # {{{
 
     def do_resize(self):
         h = self.sizeHint().height()
-        self.setMinimumHeight(0) # Needed as this gets set if det_msg is shown
+        self.setMinimumHeight(0)  # Needed as this gets set if det_msg is shown
         # Needed otherwise re-showing the box after showing det_msg causes the box
         # to not reduce in height
         self.setMaximumHeight(h)
@@ -360,7 +368,8 @@ class JobError(QDialog): # {{{
         self.pop()
 
     def pop(self):
-        if not self.queue or self.isVisible(): return
+        if not self.queue or self.isVisible():
+            return
         title, msg, det_msg = self.queue.pop(0)
         self.setWindowTitle(title)
         self.msg_label.setText(msg)

@@ -10,7 +10,7 @@ __docformat__ = 'restructuredtext en'
 import zipfile
 from functools import partial
 
-from PyQt4.Qt import (QFont, QVariant, QDialog, Qt, QColor, QColorDialog,
+from PyQt5.Qt import (QFont, QDialog, Qt, QColor, QColorDialog,
         QMenu, QInputDialog)
 
 from calibre.constants import iswindows, isxp
@@ -35,6 +35,10 @@ def config(defaults=None):
         help=_("Set the maximum width that the book's text and pictures will take"
         " when in fullscreen mode. This allows you to read the book text"
         " without it becoming too wide."))
+    c.add_opt('max_fs_height', default=-1,
+        help=_("Set the maximum height that the book's text and pictures will take"
+        " when in fullscreen mode. This allows you to read the book text"
+        " without it becoming too tall. Note that this setting only takes effect in paged mode (which is the default mode)."))
     c.add_opt('fit_images', default=True,
             help=_('Resize images larger than the viewer window to fit inside it'))
     c.add_opt('hyphenate', default=False, help=_('Hyphenate text'))
@@ -116,7 +120,7 @@ class ConfigDialog(QDialog, Ui_Dialog):
         for i in range(len(pats)):
             pmap[names[i]] = pats[i]
         for x in sorted(names):
-            self.hyphenate_default_lang.addItem(x, QVariant(pmap[x]))
+            self.hyphenate_default_lang.addItem(x, pmap[x])
         self.hyphenate_pats = pats
         self.hyphenate_names = names
         p = self.tabs.widget(1)
@@ -211,6 +215,7 @@ class ConfigDialog(QDialog, Ui_Dialog):
                 {'serif':0, 'sans':1, 'mono':2}[opts.standard_font])
         self.css.setPlainText(opts.user_css)
         self.max_fs_width.setValue(opts.max_fs_width)
+        self.max_fs_height.setValue(opts.max_fs_height)
         pats, names = self.hyphenate_pats, self.hyphenate_names
         try:
             idx = pats.index(opts.hyphenate_default_lang)
@@ -287,6 +292,10 @@ class ConfigDialog(QDialog, Ui_Dialog):
         c.set('remember_window_size', self.opt_remember_window_size.isChecked())
         c.set('fit_images', self.opt_fit_images.isChecked())
         c.set('max_fs_width', int(self.max_fs_width.value()))
+        max_fs_height = self.max_fs_height.value()
+        if max_fs_height <= self.max_fs_height.minimum():
+            max_fs_height = -1
+        c.set('max_fs_height', max_fs_height)
         c.set('hyphenate', self.hyphenate.isChecked())
         c.set('remember_current_page', self.opt_remember_current_page.isChecked())
         c.set('wheel_flips_pages', self.opt_wheel_flips_pages.isChecked())
@@ -295,7 +304,7 @@ class ConfigDialog(QDialog, Ui_Dialog):
                 float(self.opt_font_mag_step.value())/100.)
         idx = self.hyphenate_default_lang.currentIndex()
         c.set('hyphenate_default_lang',
-                str(self.hyphenate_default_lang.itemData(idx).toString()))
+                self.hyphenate_default_lang.itemData(idx))
         c.set('line_scrolling_stops_on_pagebreaks',
                 self.opt_line_scrolling_stops_on_pagebreaks.isChecked())
         c.set('fullscreen_clock', self.opt_fullscreen_clock.isChecked())

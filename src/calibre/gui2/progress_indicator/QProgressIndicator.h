@@ -1,7 +1,8 @@
 #pragma once
 
-#include <QWidget>
+#include <QtWidgets/QWidget>
 #include <QColor>
+#include <QHash>
 
 /*! 
     \class QProgressIndicator
@@ -91,14 +92,6 @@ private:
     QColor m_color;
 };
 
-/* Utility function that can be used to load a QStyle from a Qt plugin. This is
- * here so that there is no need to create a separate PyQt plugin just for this
- * simple functionality. 
- * \param path The full path to the DLL containing the plugin
- * \param name The name of the style plugin to load
- * \return 1 if succeeds 0 otherwise. The objectName of the loaded style is set to name
- */
-int load_style(QString &path, QString &name);
-
-bool do_notify(QObject *receiver, QEvent *event);
-
+int load_style(QHash<int,QString> icon_map);
+void set_no_activate_on_click(QWidget *widget);
+void set_touch_menu_style(QWidget *widget, int margin=14);

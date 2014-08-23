@@ -7,7 +7,7 @@ __docformat__ = 'restructuredtext en'
 
 import copy
 
-from PyQt4.Qt import Qt, QComboBox, QListWidgetItem
+from PyQt5.Qt import Qt, QComboBox, QListWidgetItem
 
 from calibre.customize.ui import is_disabled
 from calibre.gui2 import error_dialog, question_dialog, warning_dialog
@@ -286,7 +286,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
                         validation_formatter.validate(s)
                     except Exception as err:
                         error_dialog(self, _('Invalid template'),
-                                '<p>'+_('The template %s is invalid:')%s + \
+                                '<p>'+_('The template %s is invalid:')%s +
                                 '<br>'+str(err), show=True)
                         return
                     pb.append((s, self.dest_fields[d]))
@@ -321,7 +321,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.refill_all_boxes()
 
     def existing_pb_clicked(self, Qitem):
-        item = Qitem.data(Qt.UserRole).toPyObject()
+        item = Qitem.data(Qt.UserRole)
         self.edit_format.setCurrentIndex(self.edit_format.findText(item[0]))
         self.edit_device.setCurrentIndex(self.edit_device.findText(item[1]))
 
@@ -371,7 +371,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
 
 
 if __name__ == '__main__':
-    from PyQt4.Qt import QApplication
+    from PyQt5.Qt import QApplication
     app = QApplication([])
     test_widget('Import/Export', 'Plugboard')
 

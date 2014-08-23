@@ -7,17 +7,17 @@ __docformat__ = 'restructuredtext en'
 
 import textwrap
 
-from PyQt4.Qt import QAbstractTableModel, QVariant, QFont, Qt
+from PyQt5.Qt import QAbstractTableModel, QFont, Qt
 
 
 from calibre.gui2.preferences import ConfigWidgetBase, test_widget, \
         AbortCommit
 from calibre.gui2.preferences.email_ui import Ui_Form
 from calibre.utils.config import ConfigProxy
-from calibre.gui2 import NONE
+from calibre.gui2 import gprefs
 from calibre.utils.smtp import config as smtp_prefs
 
-class EmailAccounts(QAbstractTableModel): # {{{
+class EmailAccounts(QAbstractTableModel):  # {{{
 
     def __init__(self, accounts, subjects, aliases={}):
         QAbstractTableModel.__init__(self)
@@ -25,12 +25,12 @@ class EmailAccounts(QAbstractTableModel): # {{{
         self.subjects = subjects
         self.aliases = aliases
         self.account_order = sorted(self.accounts.keys())
-        self.headers  = map(QVariant, [_('Email'), _('Formats'), _('Subject'),
+        self.headers  = map(unicode, [_('Email'), _('Formats'), _('Subject'),
             _('Auto send'), _('Alias')])
         self.default_font = QFont()
         self.default_font.setBold(True)
-        self.default_font = QVariant(self.default_font)
-        self.tooltips =[NONE] + list(map(QVariant, map(textwrap.fill,
+        self.default_font = (self.default_font)
+        self.tooltips =[None] + list(map(unicode, map(textwrap.fill,
             [_('Formats to email. The first matching format will be sent.'),
              _('Subject of the email to use when sending. When left blank '
                'the title will be used for the subject. Also, the same '
@@ -51,33 +51,33 @@ class EmailAccounts(QAbstractTableModel): # {{{
     def headerData(self, section, orientation, role):
         if role == Qt.DisplayRole and orientation == Qt.Horizontal:
             return self.headers[section]
-        return NONE
+        return None
 
     def data(self, index, role):
         row, col = index.row(), index.column()
         if row < 0 or row >= self.rowCount():
-            return NONE
+            return None
         account = self.account_order[row]
         if account not in self.accounts:
-            return NONE
+            return None
         if role == Qt.UserRole:
             return (account, self.accounts[account])
         if role == Qt.ToolTipRole:
             return self.tooltips[col]
         if role in [Qt.DisplayRole, Qt.EditRole]:
             if col == 0:
-                return QVariant(account)
+                return (account)
             if col ==  1:
-                return QVariant(self.accounts[account][0])
+                return (self.accounts[account][0])
             if col == 2:
-                return QVariant(self.subjects.get(account, ''))
+                return (self.subjects.get(account, ''))
             if col == 4:
-                return QVariant(self.aliases.get(account, ''))
+                return (self.aliases.get(account, ''))
         if role == Qt.FontRole and self.accounts[account][2]:
             return self.default_font
         if role == Qt.CheckStateRole and col == 3:
-            return QVariant(Qt.Checked if self.accounts[account][1] else Qt.Unchecked)
-        return NONE
+            return (Qt.Checked if self.accounts[account][1] else Qt.Unchecked)
+        return None
 
     def flags(self, index):
         if index.column() == 3:
@@ -93,16 +93,16 @@ class EmailAccounts(QAbstractTableModel): # {{{
         if col == 3:
             self.accounts[account][1] ^= True
         elif col == 2:
-            self.subjects[account] = unicode(value.toString())
+            self.subjects[account] = unicode(value or '')
         elif col == 4:
             self.aliases.pop(account, None)
-            aval = unicode(value.toString()).strip()
+            aval = unicode(value or '').strip()
             if aval:
                 self.aliases[account] = aval
         elif col == 1:
-            self.accounts[account][0] = unicode(value.toString()).upper()
+            self.accounts[account][0] = unicode(value or '').upper()
         elif col == 0:
-            na = unicode(value.toString())
+            na = unicode(value or '')
             from email.utils import parseaddr
             addr = parseaddr(na)[-1]
             if not addr:
@@ -118,11 +118,12 @@ class EmailAccounts(QAbstractTableModel): # {{{
 
     def make_default(self, index):
         if index.isValid():
+            self.beginResetModel()
             row = index.row()
             for x in self.accounts.values():
                 x[2] = False
             self.accounts[self.account_order[row]][2] = True
-            self.reset()
+            self.endResetModel()
 
     def add(self):
         x = _('new email address')
@@ -132,10 +133,11 @@ class EmailAccounts(QAbstractTableModel): # {{{
             c += 1
             y = x + str(c)
         auto_send = len(self.accounts) < 1
+        self.beginResetModel()
         self.accounts[y] = ['MOBI, EPUB', auto_send,
                                                 len(self.account_order) == 0]
         self.account_order = sorted(self.accounts.keys())
-        self.reset()
+        self.endResetModel()
         return self.index(self.account_order.index(y), 0)
 
     def remove(self, index):
@@ -152,7 +154,8 @@ class EmailAccounts(QAbstractTableModel): # {{{
             if not has_default and self.account_order:
                 self.accounts[self.account_order[0]][2] = True
 
-            self.reset()
+            self.beginResetModel()
+            self.endResetModel()
 
 # }}}
 
@@ -163,6 +166,8 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
     def genesis(self, gui):
         self.gui = gui
         self.proxy = ConfigProxy(smtp_prefs())
+        r = self.register
+        r('add_comments_to_email', gprefs)
 
         self.send_email_widget.initialize(self.preferred_to_address)
         self.send_email_widget.changed_signal.connect(self.changed_signal.emit)
@@ -191,6 +196,10 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         # No defaults to restore to
 
     def commit(self):
+        if self.email_view.state() == self.email_view.EditingState:
+            # Ensure that the cell being edited is committed by switching focus
+            # to some other widget, which automatically closes the open editor
+            self.send_email_widget.setFocus(Qt.OtherFocusReason)
         to_set = bool(self._email_accounts.accounts)
         if not self.send_email_widget.set_email_settings(to_set):
             raise AbortCommit('abort')
@@ -222,7 +231,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
 
 
 if __name__ == '__main__':
-    from PyQt4.Qt import QApplication
+    from PyQt5.Qt import QApplication
     app = QApplication([])
     test_widget('Sharing', 'Email')
 

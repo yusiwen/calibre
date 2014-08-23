@@ -27,7 +27,8 @@ def fcis(text_length):
     fcis += b'\x28\x00\x00\x00\x08\x00\x01\x00\x01\x00\x00\x00\x00'
     return fcis
 
-class MOBIHeader(Header): # {{{
+class MOBIHeader(Header):  # {{{
+
     '''
     Represents the first record in a MOBI file, contains all the metadata about
     the file.
@@ -59,7 +60,7 @@ class MOBIHeader(Header): # {{{
     ident = b'MOBI'
 
     # 20: Header length
-    header_length = 248
+    header_length = 264
 
     # 24: Book Type (0x2 - Book, 0x101 - News hierarchical, 0x102 - News
     # (flat), 0x103 - News magazine same as 0x101)
@@ -115,9 +116,8 @@ class MOBIHeader(Header): # {{{
     # 112: Huff/CDIC compression
     huff_first_record
     huff_count
-
-    # 120: Unknown (Maybe DATP related, maybe HUFF/CDIC related)
-    maybe_datp = zeroes(8)
+    huff_table_offset = zeroes(4)
+    huff_table_length = zeroes(4)
 
     # 128: EXTH flags
     exth_flags = DYN
@@ -174,7 +174,13 @@ class MOBIHeader(Header): # {{{
     datp_index = NULL
     guide_index = DYN
 
-    # 264: EXTH
+    # 264: Unknown
+    unknown5 = nulls(4)
+    unknown6 = zeroes(4)
+    unknown7 = nulls(4)
+    unknown8 = zeroes(4)
+
+    # 280: EXTH
     exth = DYN
 
     # Full title
@@ -213,6 +219,7 @@ class KF8Book(object):
     def __init__(self, writer, for_joint=False):
         self.build_records(writer, for_joint)
         self.used_images = writer.used_images
+        self.page_progression_direction = writer.oeb.spine.page_progression_direction
 
     def build_records(self, writer, for_joint):
         metadata = writer.oeb.metadata
@@ -261,7 +268,7 @@ class KF8Book(object):
         self.records.append(fcis(self.text_length))
 
         # EOF
-        self.records.append(b'\xe9\x8e\r\n') # EOF record
+        self.records.append(b'\xe9\x8e\r\n')  # EOF record
 
         # Miscellaneous header fields
         self.compression = writer.compress
@@ -291,15 +298,18 @@ class KF8Book(object):
         code to customize various values after build_records() has been
         called'''
         opts = self.opts
-        self.exth = build_exth(self.metadata,
-                prefer_author_sort=opts.prefer_author_sort,
-                is_periodical=opts.mobi_periodical,
-                share_not_sync=opts.share_not_sync,
-                cover_offset=self.cover_offset,
-                thumbnail_offset=self.thumbnail_offset,
-                num_of_resources=self.num_of_resources,
-                kf8_unknown_count=self.kuc, be_kindlegen2=True,
-                start_offset=self.start_offset, mobi_doctype=self.book_type)
+        self.exth = build_exth(
+            self.metadata,
+            prefer_author_sort=opts.prefer_author_sort,
+            is_periodical=opts.mobi_periodical,
+            share_not_sync=opts.share_not_sync,
+            cover_offset=self.cover_offset,
+            thumbnail_offset=self.thumbnail_offset,
+            num_of_resources=self.num_of_resources,
+            kf8_unknown_count=self.kuc, be_kindlegen2=True,
+            start_offset=self.start_offset, mobi_doctype=self.book_type,
+            page_progression_direction=self.page_progression_direction
+        )
 
         kwargs = {field:getattr(self, field) for field in HEADER_FIELDS}
         return MOBIHeader()(**kwargs)

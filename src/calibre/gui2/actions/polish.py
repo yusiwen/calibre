@@ -12,7 +12,7 @@ from collections import OrderedDict
 from functools import partial
 from future_builtins import map
 
-from PyQt4.Qt import (QDialog, QGridLayout, QIcon, QCheckBox, QLabel, QFrame,
+from PyQt5.Qt import (QDialog, QGridLayout, QIcon, QCheckBox, QLabel, QFrame,
                       QApplication, QDialogButtonBox, Qt, QSize, QSpacerItem,
                       QSizePolicy, QTimer, QModelIndex, QTextEdit,
                       QInputDialog, QMenu)
@@ -59,13 +59,14 @@ class Polish(QDialog):  # {{{
                          ' formats are not capable of supporting all the'
                          ' metadata in calibre.</p><p>There is a separate option to'
                          ' update the cover.</p>'),
-            'do_cover': _('<p>Update the covers in the ebook files to match the'
+            'do_cover': _('<h3>Update cover</h3><p>Update the covers in the ebook files to match the'
                         ' current cover in the calibre library.</p>'
                         '<p>If the ebook file does not have'
                         ' an identifiable cover, a new cover is inserted.</p>'
                         ),
             'jacket':_('<h3>Book Jacket</h3>%s')%HELP['jacket'],
             'remove_jacket':_('<h3>Remove Book Jacket</h3>%s')%HELP['remove_jacket'],
+            'remove_unused_css':_('<h3>Remove unused CSS rules</h3>%s')%HELP['remove_unused_css'],
         }
 
         self.l = l = QGridLayout()
@@ -83,6 +84,7 @@ class Polish(QDialog):  # {{{
             ('do_cover', _('Update the &cover in the book files')),
             ('jacket', _('Add metadata as a "book &jacket" page')),
             ('remove_jacket', _('&Remove a previously inserted book jacket')),
+            ('remove_unused_css', _('Remove &unused CSS rules from the book')),
         ])
         prefs = gprefs.get('polishing_settings', {})
         for name, text in self.all_actions.iteritems():
@@ -430,7 +432,20 @@ class PolishAction(InterfaceAction):
             return None
         db = self.gui.library_view.model().db
         ans = (db.id(r) for r in rows)
-        return self.get_supported_books(ans)
+        ans = self.get_supported_books(ans)
+        for fmts in ans.itervalues():
+            for x in fmts:
+                if x.startswith('ORIGINAL_'):
+                    from calibre.gui2.dialogs.confirm_delete import confirm
+                    if not confirm(_(
+                            'One of the books you are polishing has an {0} format.'
+                            ' Polishing will use this as the source and overwrite'
+                            ' any existing {1} format. Are you sure you want to proceed?').format(
+                                x, x[len('ORIGINAL_'):]), 'confirm_original_polish', title=_('Are you sure?'),
+                                   confirm_msg=_('Ask for this confirmation again')):
+                        return {}
+                    break
+        return ans
 
     def get_supported_books(self, book_ids):
         from calibre.ebooks.oeb.polish.main import SUPPORTED

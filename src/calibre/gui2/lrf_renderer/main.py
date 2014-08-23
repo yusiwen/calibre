@@ -2,8 +2,8 @@ __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 import sys, logging, os, traceback, time
 
-from PyQt4.QtGui import QKeySequence, QPainter, QDialog, QSpinBox, QSlider, QIcon
-from PyQt4.QtCore import Qt, QObject, SIGNAL, QCoreApplication, QThread
+from PyQt5.Qt import (
+    QKeySequence, QPainter, QDialog, QSpinBox, QSlider, QIcon, Qt, QCoreApplication, QThread, QScrollBar)
 
 from calibre import __appname__, setup_cli_handlers, islinux, isbsd
 from calibre.ebooks.lrf.lrfparser import LRFDocument
@@ -58,9 +58,8 @@ class Main(MainWindow, Ui_MainWindow):
 
     def create_document(self):
         self.document = Document(self.logger, self.opts)
-        QObject.connect(self.document, SIGNAL('chapter_rendered(int)'), self.chapter_rendered)
-        QObject.connect(self.document, SIGNAL('page_changed(PyQt_PyObject)'), self.page_changed)
-
+        self.document.chapter_rendered.connect(self.chapter_rendered)
+        self.document.page_changed.connect(self.page_changed)
 
     def __init__(self, logger, opts, parent=None):
         MainWindow.__init__(self, opts, parent)
@@ -87,23 +86,21 @@ class Main(MainWindow, Ui_MainWindow):
         self.action_previous_page.setShortcuts([QKeySequence.MoveToPreviousPage, QKeySequence(Qt.Key_Backspace)])
         self.action_next_match.setShortcuts(QKeySequence.FindNext)
         self.addAction(self.action_next_match)
-        QObject.connect(self.action_next_page, SIGNAL('triggered(bool)'), self.next)
-        QObject.connect(self.action_previous_page, SIGNAL('triggered(bool)'), self.previous)
-        QObject.connect(self.action_back, SIGNAL('triggered(bool)'), self.back)
-        QObject.connect(self.action_forward, SIGNAL('triggered(bool)'), self.forward)
-        QObject.connect(self.action_next_match, SIGNAL('triggered(bool)'), self.next_match)
-        QObject.connect(self.action_open_ebook, SIGNAL('triggered(bool)'), self.open_ebook)
-        QObject.connect(self.action_configure, SIGNAL('triggered(bool)'), self.configure)
-        QObject.connect(self.spin_box, SIGNAL('valueChanged(int)'), self.go_to_page)
-        QObject.connect(self.slider, SIGNAL('valueChanged(int)'), self.go_to_page)
-
+        self.action_next_page.triggered[(bool)].connect(self.next)
+        self.action_previous_page.triggered[(bool)].connect(self.previous)
+        self.action_back.triggered[(bool)].connect(self.back)
+        self.action_forward.triggered[(bool)].connect(self.forward)
+        self.action_next_match.triggered[(bool)].connect(self.next_match)
+        self.action_open_ebook.triggered[(bool)].connect(self.open_ebook)
+        self.action_configure.triggered[(bool)].connect(self.configure)
+        self.spin_box.valueChanged[(int)].connect(self.go_to_page)
+        self.slider.valueChanged[(int)].connect(self.go_to_page)
 
         self.graphics_view.setRenderHint(QPainter.Antialiasing, True)
         self.graphics_view.setRenderHint(QPainter.TextAntialiasing, True)
         self.graphics_view.setRenderHint(QPainter.SmoothPixmapTransform, True)
 
         self.closed = False
-
 
     def configure(self, triggered):
         opts = config['LRF_ebook_viewer_options']
@@ -126,7 +123,7 @@ class Main(MainWindow, Ui_MainWindow):
             self.file_name = os.path.basename(stream.name) if hasattr(stream, 'name') else ''
             self.progress_label.setText('Parsing '+ self.file_name)
             self.renderer = RenderWorker(self, stream, self.logger, self.opts)
-            QObject.connect(self.renderer, SIGNAL('finished()'), self.parsed, Qt.QueuedConnection)
+            self.renderer.finished.connect(self.parsed, type=Qt.QueuedConnection)
             self.search.clear()
             self.last_search = None
         else:
@@ -141,7 +138,6 @@ class Main(MainWindow, Ui_MainWindow):
             file = files[0]
             self.set_ebook(open(file, 'rb'))
             self.render()
-
 
     def page_changed(self, num):
         self.slider.setValue(num)
@@ -166,7 +162,6 @@ class Main(MainWindow, Ui_MainWindow):
                                             self.renderer.lrf.device_info.height
             hdelta = self.tool_bar.height()+3
 
-            from PyQt4.QtGui import QScrollBar
             s = QScrollBar(self)
             scrollbar_adjust = min(s.width(), s.height())
             self.graphics_view.resize_for(width+scrollbar_adjust, height+scrollbar_adjust)
@@ -240,16 +235,16 @@ class Main(MainWindow, Ui_MainWindow):
         self.document.back()
 
     def wheelEvent(self, ev):
-        if ev.delta() >= 0:
+        d = ev.angleDelta().y()
+        if d > 0:
             self.document.previous()
-        else:
+        elif d < 0:
             self.document.next()
 
     def closeEvent(self, event):
         if self.renderer is not None and self.renderer.isRunning():
             self.renderer.abort()
             self.renderer.wait()
-        self.emit(SIGNAL('viewer_closed(PyQt_PyObject)'), self)
         event.accept()
 
 
@@ -259,7 +254,7 @@ def file_renderer(stream, opts, parent=None, logger=None):
         logger = logging.getLogger('lrfviewer')
         setup_cli_handlers(logger, level)
     if islinux or isbsd:
-        try: # Set lrfviewer as the default for LRF files for this user
+        try:  # Set lrfviewer as the default for LRF files for this user
             from subprocess import call
             call('xdg-mime default calibre-lrfviewer.desktop application/lrf', shell=True)
         except:
@@ -271,21 +266,21 @@ def file_renderer(stream, opts, parent=None, logger=None):
 
 def option_parser():
     from calibre.gui2.main_window import option_parser
-    parser = option_parser('''\
+    parser = option_parser(_('''\
 %prog [options] book.lrf
 
 Read the LRF ebook book.lrf
-''')
+'''))
     parser.add_option('--verbose', default=False, action='store_true', dest='verbose',
-                      help='Print more information about the rendering process')
-    parser.add_option('--visual-debug', help='Turn on visual aids to debugging the rendering engine',
+                      help=_('Print more information about the rendering process'))
+    parser.add_option('--visual-debug', help=_('Turn on visual aids to debugging the rendering engine'),
                       default=False, action='store_true', dest='visual_debug')
     parser.add_option('--disable-hyphenation', dest='hyphenate', default=True, action='store_false',
-                      help='Disable hyphenation. Should significantly speed up rendering.')
+                      help=_('Disable hyphenation. Should significantly speed up rendering.'))
     parser.add_option('--white-background', dest='white_background', default=False, action='store_true',
-                      help='By default the background is off white as I find this easier on the eyes. Use this option to make the background pure white.')
+                      help=_('By default the background is off white as I find this easier on the eyes. Use this option to make the background pure white.'))
     parser.add_option('--profile', dest='profile', default=False, action='store_true',
-                      help='Profile the LRF renderer')
+                      help=_('Profile the LRF renderer'))
     return parser
 
 def normalize_settings(parser, opts):

@@ -11,8 +11,8 @@ from Queue import Empty, Queue
 from contextlib import closing
 
 
-from PyQt4.Qt import (QWizard, QWizardPage, QPixmap, Qt, QAbstractListModel,
-    QVariant, QItemSelectionModel, SIGNAL, QObject, QTimer, pyqtSignal)
+from PyQt5.Qt import (QWizard, QWizardPage, QPixmap, Qt, QAbstractListModel,
+    QItemSelectionModel, QObject, QTimer, pyqtSignal, QItemSelection)
 from calibre import __appname__, patheq
 from calibre.library.move import MoveLibrary
 from calibre.constants import (filesystem_encoding, iswindows, plugins,
@@ -26,7 +26,7 @@ from calibre.gui2.wizard.stanza_ui import Ui_WizardPage as StanzaUI
 from calibre.gui2 import min_available_height, available_width
 
 from calibre.utils.config import dynamic, prefs
-from calibre.gui2 import NONE, choose_dir, error_dialog
+from calibre.gui2 import choose_dir, error_dialog
 from calibre.gui2.dialogs.progress import ProgressDialog
 
 if iswindows:
@@ -180,6 +180,12 @@ class Sony900(Sony505):
     name = 'SONY Reader Daily Edition'
     id = 'prs900'
     output_profile = 'sony900'
+
+class SonyT3(Sony505):
+
+    name = 'SONY Reader T3'
+    id = 'prst3'
+    output_profile = 'sonyt3'
 
 class Nook(Sony505):
     id = 'nook'
@@ -381,10 +387,10 @@ class ManufacturerModel(QAbstractListModel):
 
     def data(self, index, role):
         if role == Qt.DisplayRole:
-            return QVariant(self.manufacturers[index.row()])
+            return (self.manufacturers[index.row()])
         if role == Qt.UserRole:
             return self.manufacturers[index.row()]
-        return NONE
+        return None
 
     def index_of(self, man):
         for i, x in enumerate(self.manufacturers):
@@ -405,10 +411,10 @@ class DeviceModel(QAbstractListModel):
 
     def data(self, index, role):
         if role == Qt.DisplayRole:
-            return QVariant(self.devices[index.row()].name)
+            return (self.devices[index.row()].name)
         if role == Qt.UserRole:
             return self.devices[index.row()]
-        return NONE
+        return None
 
     def index_of(self, dev):
         for i, device in enumerate(self.devices):
@@ -473,7 +479,7 @@ class StanzaPage(QWizardPage, StanzaUI):
     def __init__(self):
         QWizardPage.__init__(self)
         self.setupUi(self)
-        self.connect(self.content_server, SIGNAL('stateChanged(int)'), self.set_port)
+        self.content_server.stateChanged[(int)].connect(self.set_port)
 
     def initializePage(self):
         from calibre.gui2 import config
@@ -542,9 +548,7 @@ class DevicePage(QWizardPage, DeviceUI):
         self.device_view.setModel(self.dev_model)
         self.device_view.selectionModel().select(idx,
                 QItemSelectionModel.Select)
-        self.connect(self.manufacturer_view.selectionModel(),
-                SIGNAL('selectionChanged(QItemSelection,QItemSelection)'),
-                self.manufacturer_changed)
+        self.manufacturer_view.selectionModel().selectionChanged[(QItemSelection, QItemSelection)].connect(self.manufacturer_changed)
 
     def manufacturer_changed(self, current, previous):
         new = list(current.indexes())[0]
@@ -585,7 +589,7 @@ class MoveMonitor(QObject):
         self.dialog.setModal(True)
         self.dialog.show()
         self.timer = QTimer(self)
-        self.connect(self.timer, SIGNAL('timeout()'), self.check)
+        self.timer.timeout.connect(self.check)
         self.timer.start(200)
 
     def check(self):
@@ -676,14 +680,13 @@ class LibraryPage(QWizardPage, LibraryUI):
         QWizardPage.__init__(self)
         self.setupUi(self)
         self.registerField('library_location', self.location)
-        self.connect(self.button_change, SIGNAL('clicked()'), self.change)
+        self.button_change.clicked.connect(self.change)
         self.init_languages()
         self.language.currentIndexChanged[int].connect(self.change_language)
-        self.connect(self.location, SIGNAL('textChanged(QString)'),
-                self.location_text_changed)
+        self.location.textChanged.connect(self.location_text_changed)
 
     def location_text_changed(self, newtext):
-        self.emit(SIGNAL('completeChanged()'))
+        self.completeChanged.emit()
 
     def init_languages(self):
         self.language.blockSignals(True)
@@ -699,19 +702,19 @@ class LibraryPage(QWizardPage, LibraryUI):
                 return 'English'
             return get_language(l)
 
-        self.language.addItem(get_esc_lang(lang), QVariant(lang))
+        self.language.addItem(get_esc_lang(lang), (lang))
         items = [(l, get_esc_lang(l)) for l in available_translations()
                  if l != lang]
         if lang != 'en':
             items.append(('en', get_esc_lang('en')))
         items.sort(cmp=lambda x, y: cmp(x[1], y[1]))
         for item in items:
-            self.language.addItem(item[1], QVariant(item[0]))
+            self.language.addItem(item[1], (item[0]))
         self.language.blockSignals(False)
-        prefs['language'] = str(self.language.itemData(self.language.currentIndex()).toString())
+        prefs['language'] = str(self.language.itemData(self.language.currentIndex()) or '')
 
     def change_language(self, idx):
-        prefs['language'] = str(self.language.itemData(self.language.currentIndex()).toString())
+        prefs['language'] = str(self.language.itemData(self.language.currentIndex()) or '')
         import __builtin__
         __builtin__.__dict__['_'] = lambda(x): x
         from calibre.utils.localization import set_translators
@@ -927,7 +930,7 @@ class Wizard(QWizard):
         return QWizard.accept(self)
 
     def set_finish_text(self, *args):
-        bt = unicode(self.buttonText(self.FinishButton)).replace('&', '')
+        bt = unicode("<em>" + self.buttonText(self.FinishButton) + "</em>").replace('&', '')
         t = unicode(self.finish_page.finish_text.text())
         if '%s' in t:
             self.finish_page.finish_text.setText(t%bt)

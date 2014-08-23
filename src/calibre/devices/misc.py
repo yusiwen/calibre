@@ -210,8 +210,8 @@ class ALURATEK_COLOR(USBMS):
 
     EBOOK_DIR_MAIN = EBOOK_DIR_CARD_A = 'books'
 
-    VENDOR_NAME = ['USB_2.0', 'EZREADER', 'C4+']
-    WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = ['USB_FLASH_DRIVER', '.', 'TOUCH']
+    VENDOR_NAME = ['USB_2.0', 'EZREADER', 'C4+', 'WOXTER', 'KIANO']
+    WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = ['USB_FLASH_DRIVER', '.', 'TOUCH', 'SCRIBA_190', 'BOOKYLIGHT']
     SCAN_FROM_ROOT = True
     SUPPORTS_SUB_DIRS_FOR_SCAN = True
 
@@ -233,8 +233,10 @@ class TREKSTOR(USBMS):
             0x003e,  # This is for the EBOOK_PLAYER_5M https://bugs.launchpad.net/bugs/792091
             0x05cL,  # This is for the 4ink http://www.mobileread.com/forums/showthread.php?t=191318
             0x006c,  # This is for the 4ink http://www.mobileread.com/forums/showthread.php?t=218273
+            0x006d,  # Another Pyrus? http://www.mobileread.com/forums/showthread.php?t=231982
+            0x73,    # This is for the Pyrus 2 LED http://www.mobileread.com/forums/showthread.php?t=230379
             ]
-    BCD         = [0x0002, 0x100, 0x0222]
+    BCD         = [0x0002, 0x100, 0x0222, 0x2]
 
     EBOOK_DIR_MAIN = 'Ebooks'
 
@@ -501,7 +503,7 @@ class WOXTER(USBMS):
     SCAN_FROM_ROOT = True
     SUPPORTS_SUB_DIRS = True
 
-    VENDOR_NAME = ['ROCKCHIP']
-    WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = ['EREADER']
+    VENDOR_NAME = ['ROCKCHIP', 'TEXET']
+    WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = ['EREADER', 'TB-146SE']
 
 

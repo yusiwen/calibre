@@ -1,5 +1,3 @@
-.. include:: global.rst
-
 .. _gui:
 
 The Graphical User Interface
@@ -53,6 +51,8 @@ Add books
 
     3. **Add books from directories, including sub-directories (Multiple books per directory, assumes every ebook file is a different book)**: Allows you to choose a directory. The directory and all its sub-directories are scanned recursively and any ebooks found are added to the library. |app| assumes that each directory contains many books. All ebook files with the same name in a directory are assumed to be the same book in different formats. Ebooks with different names are added as different books. 
 
+    4. **Add multiple books from archive (ZIP/RAR)**: Allows you to add multiple ebooks that are stored inside a single ZIP or RAR file. It is a convenient shortcut that avoids having to first unzip the archive and then add the books via one of the above two options.
+
     4. **Add empty book. (Book Entry with no formats)**: Allows you to create a blank book record. This can be used to then manually fill out the information about a book that you may not have yet in your collection.
 
     5. **Add from ISBN**: Allows you to add one or more books by entering their ISBNs.
@@ -66,7 +66,7 @@ To add an additional format for an existing book you can do any of three things:
 
     1. Drag and drop the file onto the book details panel on the right side of the main window
            
-    2. Right click the Add books button and choose :guilabel`:Add files to selected books`.
+    2. Right click the Add books button and choose :guilabel:`Add files to selected books`.
            
     3. Click the red add books button in the top right area of the :guilabel:`Edit Metadata` dialog, accessed by the :ref:`edit_meta_information` action.
 
@@ -261,11 +261,11 @@ Remove books
 
     3. **Remove all formats from selected books, except...**: Allows you to **permanently** remove ebook files of any format except a specified format from books that are selected in the book list.
 
-    3. **Remove all formats from selected books**: Allows you to **permanently** remove all ebook files from books that are selected in the book list. Only the metadata will remain.
+    4. **Remove all formats from selected books**: Allows you to **permanently** remove all ebook files from books that are selected in the book list. Only the metadata will remain.
 
-    4. **Remove covers from selected books**: Allows you to **permanently** remove cover image files from books that are selected in the book list.
+    5. **Remove covers from selected books**: Allows you to **permanently** remove cover image files from books that are selected in the book list.
 
-    5. **Remove matching books from device**: Allows you to remove ebook files from a connected device that match the books that are selected in the book list.
+    6. **Remove matching books from device**: Allows you to remove ebook files from a connected device that match the books that are selected in the book list.
 
 .. note::
     Note that when you use Remove books to delete books from your |app| library, the book record is permanently deleted, but on Windows and OS X the files are placed into the recycle bin. This allows you to recover them if you change your mind.
@@ -407,7 +407,7 @@ You can search for the absence or presence of a field using the special "true" a
 Yes/no custom columns are searchable. Searching for ``false``, ``empty``, or ``blank`` will find all books
 with undefined values in the column. Searching for ``true`` will find all books that do not have undefined
 values in the column. Searching for ``yes`` or ``checked`` will find all books with ``Yes`` in the column.
-Searching for ``no`` or ``unchecked`` will find all books with ``No`` in the column. Note that the words ``yes``, ``no``, ``blank``, ``empty``, ``checked`` and ``unchecked`` are translated; you must use the current language's equivalent word. The words ``true`` and ``false`` and the special values ``_yes`` and ``_no`` are not translated.
+Searching for ``no`` or ``unchecked`` will find all books with ``No`` in the column. Note that the words ``yes``, ``no``, ``blank``, ``empty``, ``checked`` and ``unchecked`` are translated; you can use either the current language's equivalent word or the English word. The words ``true`` and ``false`` and the special values ``_yes``, ``_no``, and ``_empty`` are not translated.
 
 Hierarchical items (e.g. A.B.C) use an extended syntax to match initial parts of the hierarchy. This is done by adding a period between the exact match indicator (=) and the text. For example, the query ``tags:=.A`` will find the tags `A` and `A.B`, but will not find the tags `AA` or `AA.B`. The query ``tags:=.A.B`` will find the tags `A.B` and `A.B.C`, but not the tag `A`.
 
@@ -470,14 +470,39 @@ will be interpreted to have the title: Foundation and Earth and author: Isaac As
 
 .. _book_details:
 
+
 Book Details
 -------------
 .. image:: images/book_details.png
-    :align: center
+   :class: float-left-img
 
-The Book Details display shows extra information and the cover for the currently selected book.
+The Book Details display shows the cover and all the metadata for the currently
+selected book. It can be hidden via the button in the lower right corner of the
+main |app| window. The author names shown in the Book Detail panel are
+clickable, they will by default take you to the Wikipedia page for the author.
+This can be customized by right clicking on the author name and selecting
+Manage this author.
 
-.. _jobs:
+Similarly, if you download metadata for the book, the Book details panel will
+automatically show you links pointing to the web pages for the book on amazon,
+worldcat, etc. from where the metadata was downloaded.
+
+You can right click on individual ebook formats in the Book Details panel to
+delete them, compare them to their original versions, save them to disk, etc.
+
+You can change the cover of the book by simply drag and dropping an
+image onto the book details panel. You can also add ebook files to the current
+book by drag and dropping the files onto the book details panel.
+
+Double clicking the book details panel will open it up in a separate popup
+window.
+
+Finally, you can customize exactly what information is displayed in the Book
+Details panel via :guilabel:`Preferences->Look & Feel->Book Details`.
+
+.. raw:: html epub
+    
+    <div style="clear:both"></div>
 
 .. _tag_browser:
 
@@ -492,7 +517,7 @@ The first click on an item will restrict the list of books to those that contain
 
 Items in the Tag browser have their icons partially colored. The amount of color depends on the average rating of the books in that category. So for example if the books by Isaac Asimov have an average of four stars, the icon for Isaac Asimov in the Tag Browser will be 4/5th colored. You can hover your mouse over the icon to see the average rating.
 
-The outer-level items in the tag browser, such as Authors and Series, are called categories. You can create your own categories, called User Categories, which are useful for organizing items. For example, you can use the User Categories Editor (click the Manage User Categories button) to create a user category called Favorite Authors, then put the items for your favorites into the category. User categories can have sub-categories. For example, the user category Favorites.Authors is a sub-category of Favorites. You might also have Favorites.Series, in which case there will be two sub-categories under Favorites. Sub-categories can be created by right-clicking on a user category, choosing "Add sub-category to ...", and entering the sub-category name; or by using the User Categories Editor by entering names like the Favorites example above.
+The outer-level items in the tag browser, such as Authors and Series, are called categories. You can create your own categories, called User Categories, which are useful for organizing items. For example, you can use the User Categories Editor (click :guilabel:`Alter Tag Browser->Manage authors, series, etc->Manage User Categories`) to create a user category called Favorite Authors, then put the items for your favorites into the category. User categories can have sub-categories. For example, the user category Favorites.Authors is a sub-category of Favorites. You might also have Favorites.Series, in which case there will be two sub-categories under Favorites. Sub-categories can be created by right-clicking on a user category, choosing "Add sub-category to ...", and entering the sub-category name; or by using the User Categories Editor by entering names like the Favorites example above.
 
 You can search user categories in the same way as built-in categories, by clicking on them. There are four different searches cycled through by clicking:
     1. "everything matching an item in the category" indicated by a single green plus sign.
@@ -508,7 +533,37 @@ You can drag and drop items in the Tag browser onto user categories to add them 
 
 There is a search bar at the top of the Tag Browser that allows you to easily find any item in the Tag Browser. In addition, you can right click on any item and choose one of several operations. Some examples are to hide the it, rename it, or open a "Manage x" dialog that allows you to manage items of that kind. For example, the "Manage Authors" dialog allows you to rename authors and control how their names are sorted.
 
-You can control how items are sorted in the Tag browser via the box at the bottom of the Tag Browser. You can choose to sort by name, average rating or popularity (popularity is the number of books with an item in your library; for example, the popularity of Isaac Asimov is the number of books in your library by Isaac Asimov).
+You can control how items are sorted in the Tag browser via the :guilabel:`Alter Tag Browser` button at the bottom of the Tag Browser. You can choose to sort by name, average rating or popularity (popularity is the number of books with an item in your library; for example, the popularity of Isaac Asimov is the number of books in your library by Isaac Asimov).
+
+.. raw:: html epub
+    
+    <div style="clear:both"></div>
+
+Cover Grid
+-----------
+
+.. image:: images/cover_grid.png
+    :align: center
+
+You can have |app| display a grid of book covers instead of a list of books, if
+you prefer to browse your collection by covers instead. The :guilabel:`Cover
+Grid` is activated by clicking the grid button in the bottom right corner of
+the main |app| window. You can customize the cover sizes and the background of
+the cover grid via :guilabel:`Preferences->Look & Feel->Cover Grid`. You can
+even have |app| display any specified field under the covers, such as title or
+authors or rating or a custom column of your own devising.
+
+Cover Browser
+---------------
+
+.. image:: images/cover_browser.png
+    :align: center
+
+In addition to the cover grid described above, you can also have |app| display
+covers in the single row. This is activated via a button in the lower right
+corner of the main window. In :guilabel:`Preferences->Look & Feel->Cover
+Browser` you can change the number of covers displayed, and even have the cover
+browser display itself in a separate popup window.
 
 Quickview
 ----------
@@ -535,12 +590,22 @@ You can see if a column can be Quickview'ed by hovering your mouse over the colu
 
 Quickview respects the virtual library setting, showing only books in the current virtual library.
 
+.. raw:: html epub
+    
+    <div style="clear:both"></div>
+
+.. _jobs:
+
 Jobs
 -----
 .. image:: images/jobs.png
     :class: float-left-img
 
 The Jobs panel shows the number of currently running jobs. Jobs are tasks that run in a separate process. They include converting ebooks and talking to your reader device. You can click on the jobs panel to access the list of jobs. Once a job has completed you can see a detailed log from that job by double-clicking it in the list. This is useful to debug jobs that may not have completed successfully.
+
+.. raw:: html epub
+    
+    <div style="clear:both"></div>
 
 Keyboard Shortcuts
 ---------------------
@@ -621,6 +686,8 @@ Calibre has several keyboard shortcuts to save you time and mouse movement. Thes
       - Clear the virtual library
     * - :kbd:`Alt+Esc`
       - Clear the additional restriction
+    * - :kbd:`Ctrl+*`
+      - Create a temporary virtual library based on the current search
     * - :kbd:`N or F3`
       - Find the next book that matches the current search (only works if the highlight checkbox next to the search bar is checked)
     * - :kbd:`Shift+N or Shift+F3`

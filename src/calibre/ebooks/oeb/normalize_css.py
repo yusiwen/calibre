@@ -13,7 +13,7 @@ try:
     from cssutils.css import PropertyValue
 except ImportError:
     raise RuntimeError('You need cssutils >= 0.9.9 for calibre')
-from cssutils import profile as cssprofiles
+from cssutils import profile as cssprofiles, CSSParser
 
 DEFAULTS = {'azimuth': 'center', 'background-attachment': 'scroll',  # {{{
             'background-color': 'transparent', 'background-image': 'none',
@@ -113,7 +113,7 @@ def normalize_simple_composition(name, cssvalue, composition, check_inherit=True
 
 font_composition = ('font-style', 'font-variant', 'font-weight', 'font-size', 'line-height', 'font-family')
 
-def normalize_font(name, cssvalue):
+def normalize_font(cssvalue, font_family_as_list=False):
     # See https://developer.mozilla.org/en-US/docs/Web/CSS/font
     composition = font_composition
     val = cssvalue.cssText
@@ -121,28 +121,48 @@ def normalize_font(name, cssvalue):
         return {k:'inherit' for k in composition}
     if val in {'caption', 'icon', 'menu', 'message-box', 'small-caption', 'status-bar'}:
         return {k:DEFAULTS[k] for k in composition}
-    try:
-        primitives = list(v.cssText for v in cssvalue)
-    except TypeError:
-        primitives = [cssvalue.cssText]
-    if len(primitives) < 2:
+    if getattr(cssvalue, 'length', 1) < 2:
         return {}  # Mandatory to define both font size and font family
     style = {k:DEFAULTS[k] for k in composition}
-    style['font-family'] = primitives.pop()
-    if len(primitives) > 1 and cssprofiles.validate('line-height', primitives[-1]) and cssprofiles.validate('font-size', primitives[-2]):
-        style['line-height'], style['font-size'] = primitives.pop(), primitives.pop()
-    else:
-        val = primitives.pop()
-        if not cssprofiles.validate('font-size', val):
-            return {}
-        style['font-size'] = val
-    composition = composition[:3]
-    while primitives:
-        value = primitives.pop()
-        for key in composition:
-            if cssprofiles.validate(key, value):
-                style[key] = value
+    families = []
+    vals = [x.cssText for x in cssvalue]
+    found_font_size = False
+    while vals:
+        text = vals.pop()
+        if not families and text == 'inherit':
+            families.append(text)
+            continue
+        if cssprofiles.validate('line-height', text):
+            if not vals or not cssprofiles.validate('font-size', vals[-1]):
+                if cssprofiles.validate('font-size', text):
+                    style['font-size'] = text
+                    found_font_size = True
+                    break
+                return {}  # must have font-size here
+            style['line-height'] = text
+            style['font-size'] = vals.pop()
+            found_font_size = True
+            break
+        if cssprofiles.validate('font-size', text):
+            style['font-size'] = text
+            found_font_size = True
+            break
+        if families == ['inherit']:
+            return {}  # Cannot have multiple font-families if the last one if inherit
+        families.insert(0, text)
+    if not families or not found_font_size:
+        return {}  # font-family required
+    style['font-family'] = families if font_family_as_list else ', '.join(families)
+    props = ['font-style', 'font-variant', 'font-weight']
+    while vals:
+        for i, prop in enumerate(tuple(props)):
+            if cssprofiles.validate(prop, vals[0]):
+                props.pop(i)
+                style[prop] = vals.pop(0)
                 break
+        else:
+            return {}  # unrecognized value
+
     return style
 
 def normalize_border(name, cssvalue):
@@ -154,7 +174,7 @@ def normalize_border(name, cssvalue):
 
 normalizers = {
     'list-style': simple_normalizer('list-style', ('type', 'position', 'image')),
-    'font': normalize_font,
+    'font': lambda prop, v: normalize_font(v),
     'border': normalize_border,
 }
 
@@ -164,6 +184,25 @@ for x in ('margin', 'padding', 'border-style', 'border-width', 'border-color'):
 for x in EDGES:
     name = 'border-' + x
     normalizers[name] = simple_normalizer(name, BORDER_PROPS, check_inherit=False)
+
+SHORTHAND_DEFAULTS = {
+    'margin': '0', 'padding': '0', 'border-style': 'none', 'border-width': '0', 'border-color': 'currentColor',
+    'border':'none', 'border-left': 'none', 'border-right':'none', 'border-top': 'none', 'border-bottom': 'none',
+    'list-style': 'inherit', 'font': 'inherit',
+}
+
+def normalize_filter_css(props):
+    import logging
+    ans = set()
+    p = CSSParser(loglevel=logging.CRITICAL, validate=False)
+    for prop in props:
+        n = normalizers.get(prop, None)
+        ans.add(prop)
+        if n is not None and prop in SHORTHAND_DEFAULTS:
+            dec = p.parseStyle('%s: %s' % (prop, SHORTHAND_DEFAULTS[prop]))
+            cssvalue = dec.getPropertyCSSValue(dec.item(0))
+            ans |= set(n(prop, cssvalue))
+    return ans
 
 def condense_edge(vals):
     edges = {x.name.rpartition('-')[-1]:x.value for x in vals}
@@ -249,7 +288,7 @@ def test_normalization():  # {{{
 
         def test_font_normalization(self):
             def font_dict(expected):
-                ans = {k:DEFAULTS[k] for k in font_composition}
+                ans = {k:DEFAULTS[k] for k in font_composition} if expected else {}
                 ans.update(expected)
                 return ans
 
@@ -257,6 +296,8 @@ def test_normalization():  # {{{
                 'some_font': {}, 'none': {}, 'inherit':{k:'inherit' for k in font_composition},
                 '1.2pt/1.4 A_Font': {'font-family':'A_Font', 'font-size':'1.2pt', 'line-height':'1.4'},
                 'bad font': {}, '10% serif': {'font-family':'serif', 'font-size':'10%'},
+                '12px "My Font", serif': {'font-family':'"My Font", serif', 'font-size': '12px'},
+                'normal 0.6em/135% arial,sans-serif': {'font-family': 'arial, sans-serif', 'font-size': '0.6em', 'line-height':'135%', 'font-style':'normal'},
                 'bold italic large serif': {'font-family':'serif', 'font-weight':'bold', 'font-style':'italic', 'font-size':'large'},
                 'bold italic small-caps larger/normal serif':
                 {'font-family':'serif', 'font-weight':'bold', 'font-style':'italic', 'font-size':'larger',
@@ -264,10 +305,7 @@ def test_normalization():  # {{{
             }.iteritems():
                 val = tuple(parseStyle('font: %s' % raw, validate=False))[0].cssValue
                 style = normalizers['font']('font', val)
-                if expected:
-                    self.assertDictEqual(font_dict(expected), style)
-                else:
-                    self.assertDictEqual(expected, style)
+                self.assertDictEqual(font_dict(expected), style, raw)
 
         def test_border_normalization(self):
             def border_edge_dict(expected, edge='right'):
@@ -336,6 +374,21 @@ def test_normalization():  # {{{
             }.iteritems():
                 cval = tuple(parseStyle('list-style: %s' % raw, validate=False))[0].cssValue
                 self.assertDictEqual(ls_dict(expected), normalizers['list-style']('list-style', cval))
+
+        def test_filter_css_normalization(self):
+            ae = self.assertEqual
+            ae({'font'} | set(font_composition), normalize_filter_css({'font'}))
+            for p in ('margin', 'padding'):
+                ae({p} | {p + '-' + x for x in EDGES}, normalize_filter_css({p}))
+            bvals = {'border-%s-%s' % (edge, x) for edge in EDGES for x in BORDER_PROPS}
+            ae(bvals | {'border'}, normalize_filter_css({'border'}))
+            for x in BORDER_PROPS:
+                sbvals = {'border-%s-%s' % (e, x) for e in EDGES}
+                ae(sbvals | {'border-%s' % x}, normalize_filter_css({'border-%s' % x}))
+            for e in EDGES:
+                sbvals = {'border-%s-%s' % (e, x) for x in BORDER_PROPS}
+                ae(sbvals | {'border-%s' % e}, normalize_filter_css({'border-%s' % e}))
+            ae({'list-style', 'list-style-image', 'list-style-type', 'list-style-position'}, normalize_filter_css({'list-style'}))
 
         def test_edge_condensation(self):
             for s, v in {

@@ -91,7 +91,7 @@ class OptionParser(optparse.OptionParser):
         if epilog is None:
             epilog = _('Created by ')+colored(__author__, fg='cyan')
         usage += '\n\n'+_('''Whenever you pass arguments to %prog that have spaces in them, '''
-                 '''enclose the arguments in quotation marks.''')+'\n'
+                          '''enclose the arguments in quotation marks. For example "C:\\some path with spaces"''')+'\n'
         if version is None:
             version = '%%prog (%s %s)'%(__appname__, get_version())
         optparse.OptionParser.__init__(self, usage=usage, version=version, epilog=epilog,
@@ -176,7 +176,7 @@ class OptionParser(optparse.OptionParser):
         non default values in lower.
         '''
         for dest in lower.__dict__.keys():
-            if not dest in upper.__dict__:
+            if dest not in upper.__dict__:
                 continue
             opt = self.option_by_dest(dest)
             if lower.__dict__[dest] != opt.default and \
@@ -202,7 +202,11 @@ class DynamicConfig(dict):
         self.file_path = os.path.join(config_dir, name+'.pickle')
         self.refresh()
 
-    def refresh(self):
+    def decouple(self, prefix):
+        self.file_path = os.path.join(os.path.dirname(self.file_path), prefix + os.path.basename(self.file_path))
+        self.refresh()
+
+    def refresh(self, clear_current=True):
         d = {}
         if os.path.exists(self.file_path):
             with ExclusiveFile(self.file_path) as f:
@@ -216,7 +220,8 @@ class DynamicConfig(dict):
                     print 'Failed to unpickle stored object:'
                     traceback.print_exc()
                     d = {}
-        self.clear()
+        if clear_current:
+            self.clear()
         self.update(d)
 
     def __getitem__(self, key):
@@ -280,7 +285,11 @@ class XMLConfig(dict):
     def to_raw(self):
         return plistlib.writePlistToString(self)
 
-    def refresh(self):
+    def decouple(self, prefix):
+        self.file_path = os.path.join(os.path.dirname(self.file_path), prefix + os.path.basename(self.file_path))
+        self.refresh()
+
+    def refresh(self, clear_current=True):
         d = {}
         if os.path.exists(self.file_path):
             with ExclusiveFile(self.file_path) as f:
@@ -293,7 +302,8 @@ class XMLConfig(dict):
                     import traceback
                     traceback.print_exc()
                     d = {}
-        self.clear()
+        if clear_current:
+            self.clear()
         self.update(d)
 
     def __getitem__(self, key):

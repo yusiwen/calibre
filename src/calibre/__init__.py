@@ -21,7 +21,7 @@ from calibre.constants import (iswindows, isosx, islinux, isfrozen,
 from calibre.startup import winutil, winutilerror
 
 if False and islinux and not getattr(sys, 'frozen', False):
-    # Imported before PyQt4 to workaround PyQt4 util-linux conflict discovered on gentoo
+    # Imported before PyQt to workaround PyQt util-linux conflict discovered on gentoo
     # See http://bugs.gentoo.org/show_bug.cgi?id=317557
     # Importing uuid is slow so get rid of this at some point, maybe in a few
     # years when even Debian has caught up
@@ -183,6 +183,14 @@ def prints(*args, **kwargs):
         enc = 'utf-8'
     for i, arg in enumerate(args):
         if isinstance(arg, unicode):
+            if iswindows:
+                from calibre.utils.terminal import Detect
+                cs = Detect(file)
+                if cs.is_console:
+                    cs.write_unicode_text(arg)
+                    if i != len(args)-1:
+                        file.write(bytes(sep))
+                    continue
             try:
                 arg = arg.encode(enc)
             except UnicodeEncodeError:
@@ -463,16 +471,18 @@ class CurrentDir(object):
 
 def detect_ncpus():
     """Detects the number of effective CPUs in the system"""
-    import multiprocessing
-    ans = -1
-    try:
-        ans = multiprocessing.cpu_count()
-    except:
-        from PyQt4.Qt import QThread
-        ans = QThread.idealThreadCount()
-    if ans < 1:
-        ans = 1
-    return ans
+    if iswindows:
+        import win32api
+        ans = win32api.GetSystemInfo()[5]
+    else:
+        import multiprocessing
+        ans = -1
+        try:
+            ans = multiprocessing.cpu_count()
+        except Exception:
+            from PyQt5.Qt import QThread
+            ans = QThread.idealThreadCount()
+    return max(1, ans)
 
 
 relpath = os.path.relpath
@@ -562,9 +572,9 @@ def entity_to_unicode(match, exceptions=[], encoding='cp1252',
             return check(chr(num).decode(encoding))
         except UnicodeDecodeError:
             return check(my_unichr(num))
-    from html5lib.constants import entities
+    from calibre.ebooks.html_entities import html5_entities
     try:
-        return check(entities[ent])
+        return check(html5_entities[ent])
     except KeyError:
         pass
     from htmlentitydefs import name2codepoint
@@ -630,50 +640,6 @@ def url_slash_cleaner(url):
     Removes redundant /'s from url's.
     '''
     return re.sub(r'(?<!:)/{2,}', '/', url)
-
-def get_download_filename(url, cookie_file=None):
-    '''
-    Get a local filename for a URL using the content disposition header
-    Returns empty string if no content disposition header present
-    '''
-    from contextlib import closing
-    from urllib2 import unquote as urllib2_unquote
-
-    filename = ''
-
-    br = browser()
-    if cookie_file:
-        from mechanize import MozillaCookieJar
-        cj = MozillaCookieJar()
-        cj.load(cookie_file)
-        br.set_cookiejar(cj)
-
-    last_part_name = ''
-    try:
-        with closing(br.open(url)) as r:
-            last_part_name = r.geturl().split('/')[-1]
-            disposition = r.info().get('Content-disposition', '')
-            for p in disposition.split(';'):
-                if 'filename' in p:
-                    if '*=' in disposition:
-                        parts = disposition.split('*=')[-1]
-                        filename = parts.split('\'')[-1]
-                    else:
-                        filename = disposition.split('=')[-1]
-                    if filename[0] in ('\'', '"'):
-                        filename = filename[1:]
-                    if filename[-1] in ('\'', '"'):
-                        filename = filename[:-1]
-                    filename = urllib2_unquote(filename)
-                    break
-    except:
-        import traceback
-        traceback.print_exc()
-
-    if not filename:
-        filename = last_part_name
-
-    return filename
 
 def human_readable(size, sep=' '):
     """ Convert a size in bytes into a human readable form """

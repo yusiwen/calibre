@@ -165,6 +165,8 @@ class Chunker(object):
 
         for i, item in enumerate(self.oeb.spine):
             root = self.remove_namespaces(self.data(item))
+            for child in root.xpath('//*[@aid]'):
+                child.set('aid', child.attrib.pop('aid'))  # kindlegen always puts the aid last
             body = root.xpath('//body')[0]
             body.tail = '\n'
 
@@ -199,7 +201,7 @@ class Chunker(object):
 
         # Set internal links
         text = b''.join(x.raw_text for x in self.skeletons)
-        self.text = self.set_internal_links(text)
+        self.text = self.set_internal_links(text, b''.join(x.rebuild() for x in self.skeletons))
 
     def remove_namespaces(self, root):
         lang = None
@@ -216,6 +218,8 @@ class Chunker(object):
         # preceding layers should have removed svg and any other non html
         # namespaced tags.
         attrib = {'lang':lang} if lang else {}
+        if 'class' in root.attrib:
+            attrib['class'] = root.attrib['class']
         nroot = etree.Element('html', attrib=attrib)
         nroot.text = root.text
         nroot.tail = '\n'
@@ -250,7 +254,7 @@ class Chunker(object):
         first_chunk_idx = len(chunks)
 
         # First handle any text
-        if tag.text and tag.text.strip(): # Leave pure whitespace in the skel
+        if tag.text and tag.text.strip():  # Leave pure whitespace in the skel
             chunks.extend(self.chunk_up_text(tag.text))
             tag.text = None
 
@@ -265,7 +269,7 @@ class Chunker(object):
             raw = close_self_closing_tags(raw)
             if len(raw) > CHUNK_SIZE and child.get('aid', None):
                 self.step_into_tag(child, chunks)
-                if child.tail and child.tail.strip(): # Leave pure whitespace
+                if child.tail and child.tail.strip():  # Leave pure whitespace
                     chunks.extend(self.chunk_up_text(child.tail))
                     child.tail = None
             else:
@@ -313,9 +317,9 @@ class Chunker(object):
         for chunk in chunks[1:]:
             prev = ans[-1]
             if (
-                    chunk.starts_tags or # Starts a tag in the skel
-                    len(chunk) + len(prev) > CHUNK_SIZE or # Too large
-                    prev.ends_tags # Prev chunk ended a tag
+                    chunk.starts_tags or  # Starts a tag in the skel
+                    len(chunk) + len(prev) > CHUNK_SIZE or  # Too large
+                    prev.ends_tags  # Prev chunk ended a tag
                     ):
                 ans.append(chunk)
             else:
@@ -344,16 +348,16 @@ class Chunker(object):
                 cp += len(chunk.raw)
                 num += 1
 
-    def set_internal_links(self, text):
+    def set_internal_links(self, text, rebuilt_text):
         ''' Update the internal link placeholders to point to the correct
         location, based on the chunk table.'''
-        # A kindle:pos:fid link contains two base 32 numbers of the form
+        # A kindle:pos:fid:off link contains two base 32 numbers of the form
         # XXXX:YYYYYYYYYY
         # The first number is an index into the chunk table and the second is
         # an offset from the start of the chunk to the start of the tag pointed
         # to by the link.
-        aid_map = {} # Map of aid to (pos, fid)
-        for match in re.finditer(br'<[^>]+? aid=[\'"]([A-Z0-9]+)[\'"]', text):
+        aid_map = {}  # Map of aid to (fid, offset_from_start_of_chunk, offset_from_start_of_text)
+        for match in re.finditer(br'<[^>]+? aid=[\'"]([A-Z0-9]+)[\'"]', rebuilt_text):
             offset = match.start()
             pos_fid = None
             for chunk in self.chunk_table:
@@ -367,8 +371,8 @@ class Chunker(object):
                     pos_fid = (chunk.sequence_number, 0, offset)
                     break
                 if chunk is self.chunk_table[-1]:
-                    # This can happen for aids very close to the end of the the
-                    # end of the text (https://bugs.launchpad.net/bugs/1011330)
+                    # This can happen for aids very close to the end of the
+                    # text (https://bugs.launchpad.net/bugs/1011330)
                     pos_fid = (chunk.sequence_number, offset-chunk.insert_pos,
                             offset)
             if pos_fid is None:

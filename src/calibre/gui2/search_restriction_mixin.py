@@ -8,9 +8,9 @@ __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 
 from functools import partial
 
-from PyQt4.Qt import (
+from PyQt5.Qt import (
     Qt, QMenu, QPoint, QIcon, QDialog, QGridLayout, QLabel, QLineEdit, QComboBox,
-    QDialogButtonBox, QSize, QVBoxLayout, QListWidget, QStringList, QRadioButton)
+    QDialogButtonBox, QSize, QVBoxLayout, QListWidget, QRadioButton, QAction)
 
 from calibre.gui2 import error_dialog, question_dialog, gprefs
 from calibre.gui2.dialogs.confirm_delete import confirm
@@ -30,7 +30,7 @@ class SelectNames(QDialog):  # {{{
         l.addWidget(la)
 
         self._names = QListWidget(self)
-        self._names.addItems(QStringList(sorted(names, key=sort_key)))
+        self._names.addItems(sorted(names, key=sort_key))
         self._names.setSelectionMode(self._names.ExtendedSelection)
         l.addWidget(self._names)
 
@@ -50,7 +50,7 @@ class SelectNames(QDialog):  # {{{
     @property
     def names(self):
         for item in self._names.selectedItems():
-            yield unicode(item.data(Qt.DisplayRole).toString())
+            yield unicode(item.data(Qt.DisplayRole) or '')
 
     @property
     def match_type(self):
@@ -231,7 +231,7 @@ class CreateVirtualLibrary(QDialog):  # {{{
                 return
         self.new_name = self.editing = self.vl_name.currentText()
         self.original_index = dex
-        self.original_search = unicode(self.vl_name.itemData(dex).toString())
+        self.original_search = unicode(self.vl_name.itemData(dex) or '')
         self.vl_text.setText(self.original_search)
 
     def link_activated(self, url):
@@ -308,9 +308,20 @@ class SearchRestrictionMixin(object):
 
     no_restriction = _('<None>')
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def init_search_restirction_mixin(self):
         self.checked = QIcon(I('ok.png'))
         self.empty = QIcon(I('blank.png'))
+        self.current_search_action = QAction(self.empty, _('*current search'), self)
+        self.current_search_action.triggered.connect(partial(self.apply_virtual_library, library='*'))
+        self.addAction(self.current_search_action)
+        self.keyboard.register_shortcut(
+            'vl-from-current-search', _('Virtual library from current search'), description=_(
+                'Create a temporary Virtual library from the current search'), group=_('Miscellaneous'),
+            default_keys=('Ctrl+*',), action=self.current_search_action)
+
         self.search_based_vl_name = None
         self.search_based_vl = None
 
@@ -387,8 +398,7 @@ class SearchRestrictionMixin(object):
             a = m.addAction(self.empty, self.no_restriction)
         a.triggered.connect(partial(self.apply_virtual_library, library=''))
 
-        a = m.addAction(self.empty, _('*current search'))
-        a.triggered.connect(partial(self.apply_virtual_library, library='*'))
+        a = m.addAction(self.current_search_action)
 
         if self.search_based_vl_name:
             a = m.addAction(
@@ -402,7 +412,7 @@ class SearchRestrictionMixin(object):
 
         virt_libs = db.prefs.get('virtual_libraries', {})
         for vl in sorted(virt_libs.keys(), key=sort_key):
-            a = m.addAction(self.checked if vl == current_lib else self.empty, vl)
+            a = m.addAction(self.checked if vl == current_lib else self.empty, vl.replace('&', '&&'))
             a.triggered.connect(partial(self.apply_virtual_library, library=vl))
 
         p = QPoint(0, self.virtual_library.height())
@@ -455,7 +465,7 @@ class SearchRestrictionMixin(object):
         menu.setIcon(self.empty)
 
         def add_action(name, search):
-            a = menu.addAction(name)
+            a = menu.addAction(name.replace('&', '&&'))
             a.triggered.connect(partial(handler, name=name))
             a.setIcon(self.empty)
 

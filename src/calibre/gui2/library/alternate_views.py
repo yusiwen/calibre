@@ -13,14 +13,15 @@ from Queue import LifoQueue
 from functools import wraps, partial
 from textwrap import wrap
 
-from PyQt4.Qt import (
+from PyQt5.Qt import (
     QListView, QSize, QStyledItemDelegate, QModelIndex, Qt, QImage, pyqtSignal,
     QTimer, QPalette, QColor, QItemSelection, QPixmap, QMenu, QApplication,
     QMimeData, QUrl, QDrag, QPoint, QPainter, QRect, pyqtProperty, QEvent,
     QPropertyAnimation, QEasingCurve, pyqtSlot, QHelpEvent, QAbstractItemView,
-    QStyleOptionViewItem, QToolTip, QByteArray, QBuffer, QBrush)
+    QStyleOptionViewItem, QToolTip, QByteArray, QBuffer, QBrush, qRed, qGreen, qBlue)
 
-from calibre import fit_image, prints, prepare_string_for_xml
+from calibre import fit_image, prints, prepare_string_for_xml, human_readable
+from calibre.constants import DEBUG, config_dir
 from calibre.ebooks.metadata import fmt_sidx
 from calibre.utils import join_with_timeout
 from calibre.gui2 import gprefs, config
@@ -310,6 +311,7 @@ class AlternateViews(object):
 class CoverDelegate(QStyledItemDelegate):
 
     MARGIN = 4
+    TOP, LEFT, RIGHT, BOTTOM = object(), object(), object(), object()
 
     @pyqtProperty(float)
     def animated_size(self):
@@ -335,6 +337,14 @@ class CoverDelegate(QStyledItemDelegate):
         width = self.original_width = gprefs['cover_grid_width']
         height = self.original_height = gprefs['cover_grid_height']
         self.original_show_title = show_title = gprefs['cover_grid_show_title']
+        self.original_show_emblems = gprefs['show_emblems']
+        self.orginal_emblem_size = gprefs['emblem_size']
+        self.orginal_emblem_position = gprefs['emblem_position']
+        self.emblem_size = gprefs['emblem_size'] if self.original_show_emblems else 0
+        try:
+            self.gutter_position = getattr(self, self.orginal_emblem_position.upper())
+        except Exception:
+            self.gutter_position = self.TOP
 
         if height < 0.1:
             height = auto_height(self.parent())
@@ -354,6 +364,9 @@ class CoverDelegate(QStyledItemDelegate):
                 sz = f.pointSize() * self.parent().logicalDpiY() / 72.0
             self.title_height = max(25, sz + 10)
         self.item_size = self.cover_size + QSize(2 * self.MARGIN, (2 * self.MARGIN) + self.title_height)
+        if self.emblem_size > 0:
+            extra = self.emblem_size + self.MARGIN
+            self.item_size += QSize(extra, 0) if self.gutter_position in (self.LEFT, self.RIGHT) else QSize(0, extra)
         self.calculate_spacing()
         self.animation.setStartValue(1.0)
         self.animation.setKeyValueAt(0.5, 0.5)
@@ -368,6 +381,51 @@ class CoverDelegate(QStyledItemDelegate):
 
     def sizeHint(self, option, index):
         return self.item_size
+
+    def render_field(self, db, book_id):
+        try:
+            field = db.pref('field_under_covers_in_grid', 'title')
+            if field == 'size':
+                ans = human_readable(db.field_for(field, book_id, default_value=0))
+            else:
+                mi = db.get_proxy_metadata(book_id)
+                display_name, ans, val, fm = mi.format_field_extended(field)
+                if fm and fm['datatype'] == 'rating':
+                    ans = u'\u2605' * int(val/2.0) if val is not None else ''
+            return '' if ans is None else unicode(ans)
+        except Exception:
+            if DEBUG:
+                import traceback
+                traceback.print_exc()
+        return ''
+
+    def render_emblem(self, book_id, rule, rule_index, cache, mi, db, formatter, template_cache):
+        ans = cache[book_id].get(rule, False)
+        if ans is not False:
+            return ans, mi
+        ans = None
+        if mi is None:
+            mi = db.get_proxy_metadata(book_id)
+        ans = formatter.safe_format(rule, mi, '', mi, column_name='cover_grid%d' % rule_index, template_cache=template_cache) or None
+        cache[book_id][rule] = ans
+        return ans, mi
+
+    def cached_emblem(self, cache, name, raw_icon=None):
+        ans = cache.get(name, False)
+        if ans is not False:
+            return ans
+        sz = self.emblem_size
+        ans = None
+        if raw_icon is not None:
+            ans = raw_icon.pixmap(sz, sz)
+        elif name == ':ondevice':
+            ans = QPixmap(I('ok.png')).scaled(sz, sz, transformMode=Qt.SmoothTransformation)
+        elif name:
+            pmap = QPixmap(os.path.join(config_dir, 'cc_icons', name))
+            if not pmap.isNull():
+                ans = pmap.scaled(sz, sz)
+        cache[name] = ans
+        return ans
 
     def paint(self, painter, option, index):
         QStyledItemDelegate.paint(self, painter, option, QModelIndex())  # draw the hover and selection highlights
@@ -390,11 +448,29 @@ class CoverDelegate(QStyledItemDelegate):
         cdata = self.cover_cache[book_id]
         device_connected = self.parent().gui.device_connected is not None
         on_device = device_connected and db.field_for('ondevice', book_id)
+
+        emblem_rules = db.pref('cover_grid_icon_rules', default=())
+        emblems = []
+        if self.emblem_size > 0:
+            mi = None
+            for i, (kind, column, rule) in enumerate(emblem_rules):
+                icon_name, mi = self.render_emblem(book_id, rule, i, m.cover_grid_emblem_cache, mi, db, m.formatter, m.cover_grid_template_cache)
+                if icon_name is not None:
+                    pixmap = self.cached_emblem(m.cover_grid_bitmap_cache, icon_name)
+                    if pixmap is not None:
+                        emblems.append(pixmap)
+            if marked:
+                emblems.insert(0, self.cached_emblem(m.cover_grid_bitmap_cache, ':marked', m.marked_icon))
+            if on_device:
+                emblems.insert(0, self.cached_emblem(m.cover_grid_bitmap_cache, ':ondevice'))
+
         painter.save()
         right_adjust = 0
         try:
             rect = option.rect
             rect.adjust(self.MARGIN, self.MARGIN, -self.MARGIN, -self.MARGIN)
+            if self.emblem_size > 0:
+                self.paint_emblems(painter, rect, emblems)
             orect = QRect(rect)
             if cdata is None or cdata is False:
                 title = db.field_for('title', book_id, default_value='')
@@ -418,34 +494,69 @@ class CoverDelegate(QStyledItemDelegate):
                     rect = trect
                     rect.setTop(rect.bottom() - self.title_height + 5)
                     painter.setRenderHint(QPainter.TextAntialiasing, True)
-                    title = db.field_for('title', book_id, default_value='')
+                    title = self.render_field(db, book_id)
                     metrics = painter.fontMetrics()
+                    painter.setPen(self.highlight_color)
                     painter.drawText(rect, Qt.AlignCenter|Qt.TextSingleLine,
                                      metrics.elidedText(title, Qt.ElideRight, rect.width()))
+            if self.emblem_size > 0:
+                return  # We dont draw embossed emblems as the ondevice/marked emblems are drawn in the gutter
             if marked:
                 try:
                     p = self.marked_emblem
                 except AttributeError:
                     p = self.marked_emblem = m.marked_icon.pixmap(48, 48)
-                drect = QRect(orect)
-                drect.setLeft(drect.left() + right_adjust)
-                drect.setRight(drect.left() + p.width())
-                drect.setBottom(drect.bottom() - self.title_height)
-                drect.setTop(drect.bottom() - p.height())
-                painter.drawPixmap(drect, p)
+                self.paint_embossed_emblem(p, painter, orect, right_adjust)
+
             if on_device:
                 try:
                     p = self.on_device_emblem
                 except AttributeError:
                     p = self.on_device_emblem = QPixmap(I('ok.png')).scaled(48, 48, transformMode=Qt.SmoothTransformation)
-                drect = QRect(orect)
-                drect.setRight(drect.right() - right_adjust)
-                drect.setBottom(drect.bottom() - self.title_height)
-                drect.setTop(drect.bottom() - p.height() + 1)
-                drect.setLeft(drect.right() - p.width() + 1)
-                painter.drawPixmap(drect, p)
+                self.paint_embossed_emblem(p, painter, orect, right_adjust, left=False)
         finally:
             painter.restore()
+
+    def paint_emblems(self, painter, rect, emblems):
+        gutter = self.emblem_size + self.MARGIN
+        grect = QRect(rect)
+        gpos = self.gutter_position
+        if gpos is self.TOP:
+            grect.setBottom(grect.top() + gutter)
+            rect.setTop(rect.top() + gutter)
+        elif gpos is self.BOTTOM:
+            grect.setTop(grect.bottom() - gutter + self.MARGIN)
+            rect.setBottom(rect.bottom() - gutter)
+        elif gpos is self.LEFT:
+            grect.setRight(grect.left() + gutter)
+            rect.setLeft(rect.left() + gutter)
+        else:
+            grect.setLeft(grect.right() - gutter + self.MARGIN)
+            rect.setRight(rect.right() - gutter)
+        horizontal = gpos in (self.TOP, self.BOTTOM)
+        painter.save()
+        painter.setClipRect(grect)
+        try:
+            for i, emblem in enumerate(emblems):
+                delta = 0 if i == 0 else self.emblem_size + self.MARGIN
+                grect.moveLeft(grect.left() + delta) if horizontal else grect.moveTop(grect.top() + delta)
+                rect = QRect(grect)
+                rect.setWidth(emblem.width()), rect.setHeight(emblem.height())
+                painter.drawPixmap(rect, emblem)
+        finally:
+            painter.restore()
+
+    def paint_embossed_emblem(self, pixmap, painter, orect, right_adjust, left=True):
+        drect = QRect(orect)
+        if left:
+            drect.setLeft(drect.left() + right_adjust)
+            drect.setRight(drect.left() + pixmap.width())
+        else:
+            drect.setRight(drect.right() - right_adjust)
+            drect.setLeft(drect.right() - pixmap.width() + 1)
+        drect.setBottom(drect.bottom() - self.title_height)
+        drect.setTop(drect.bottom() - pixmap.height())
+        painter.drawPixmap(drect, pixmap)
 
     @pyqtSlot(QHelpEvent, QAbstractItemView, QStyleOptionViewItem, QModelIndex, result=bool)
     def helpEvent(self, event, view, option, index):
@@ -580,7 +691,11 @@ class GridView(QListView):
             from calibre.gui2.preferences.texture_chooser import texture_path
             path = texture_path(tex)
             if path:
-                pal.setBrush(pal.Base, QBrush(QPixmap(path)))
+                pm = QPixmap(path)
+                if not pm.isNull():
+                    val = pm.scaled(1, 1).toImage().pixel(0, 0)
+                    r, g, b = qRed(val), qGreen(val), qBlue(val)
+                    pal.setBrush(pal.Base, QBrush(pm))
         dark = (r + g + b)/3.0 < 128
         pal.setColor(pal.Text, QColor(Qt.white if dark else Qt.black))
         self.setPalette(pal)
@@ -591,7 +706,10 @@ class GridView(QListView):
             gprefs['cover_grid_width'] != self.delegate.original_width or
             gprefs['cover_grid_height'] != self.delegate.original_height
         )
-        if (size_changed or gprefs['cover_grid_show_title'] != self.delegate.original_show_title):
+        if (size_changed or gprefs['cover_grid_show_title'] != self.delegate.original_show_title or
+                gprefs['show_emblems'] != self.delegate.original_show_emblems or
+                gprefs['emblem_size'] != self.delegate.orginal_emblem_size or
+                gprefs['emblem_position'] != self.delegate.orginal_emblem_position):
             self.delegate.set_dimensions()
             self.setSpacing(self.delegate.spacing)
             if size_changed:
@@ -826,5 +944,15 @@ class GridView(QListView):
                 self.update(m.index(m.db.data.id_to_index(book_id), 0))
             except ValueError:
                 pass
+
+    def moveCursor(self, action, modifiers):
+        index = QListView.moveCursor(self, action, modifiers)
+        if action in (QListView.MoveLeft, QListView.MoveRight) and index.isValid():
+            ci = self.currentIndex()
+            if ci.isValid() and index.row() == ci.row():
+                nr = index.row() + (1 if action == QListView.MoveRight else -1)
+                if 0 <= nr < self.model().rowCount(QModelIndex()):
+                    index = self.model().index(nr, 0)
+        return index
 
 # }}}

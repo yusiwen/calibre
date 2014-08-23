@@ -7,9 +7,9 @@ __license__   = 'GPL v3'
 __copyright__ = '2012, Kovid Goyal <kovid at kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-from PyQt4.Qt import (QObject, QEventLoop, Qt, QPrintDialog, QPainter, QSize,
+from PyQt5.Qt import (QObject, QEventLoop, Qt, QPrintDialog, QPainter, QSize,
         QPrintPreviewDialog)
-from PyQt4.QtWebKit import QWebView
+from PyQt5.QtWebKitWidgets import QWebView
 
 from calibre.gui2 import error_dialog
 from calibre.ebooks.oeb.display.webview import load_html
@@ -82,16 +82,20 @@ class Printing(QObject):
                         printer.newPage()
                     first = False
                     self.mf.render(painter)
-                nsl = evaljs('paged_display.next_screen_location()').toInt()
-                if not nsl[1] or nsl[0] <= 0: break
-                evaljs('window.scrollTo(%d, 0)'%nsl[0])
+                try:
+                    nsl = int(evaljs('paged_display.next_screen_location()'))
+                except (TypeError, ValueError):
+                    break
+                if nsl <= 0:
+                    break
+                evaljs('window.scrollTo(%d, 0)'%nsl)
 
         painter.end()
 
 if __name__ == '__main__':
     from calibre.gui2 import Application
     from calibre.ebooks.oeb.iterator.book import EbookIterator
-    from PyQt4.Qt import QPrinter, QTimer
+    from PyQt5.Qt import QPrinter, QTimer
     import sys
     app = Application([])
 

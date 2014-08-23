@@ -3,7 +3,7 @@ __copyright__ = '2008, Kovid Goyal kovid@kovidgoyal.net'
 __docformat__ = 'restructuredtext en'
 __license__   = 'GPL v3'
 
-from PyQt4.Qt import (Qt, QDialog, QTableWidgetItem, QAbstractItemView, QIcon,
+from PyQt5.Qt import (Qt, QDialog, QTableWidgetItem, QAbstractItemView, QIcon,
                   QDialogButtonBox, QFrame, QLabel, QTimer, QMenu, QApplication,
                   QByteArray)
 
@@ -274,7 +274,7 @@ class EditAuthorsDialog(QDialog, Ui_EditAuthorsDialog):
         self.save_state()
         self.result = []
         for row in range(0,self.table.rowCount()):
-            id   = self.table.item(row, 0).data(Qt.UserRole).toInt()[0]
+            id   = int(self.table.item(row, 0).data(Qt.UserRole))
             aut  = unicode(self.table.item(row, 0).text()).strip()
             sort = unicode(self.table.item(row, 1).text()).strip()
             link = unicode(self.table.item(row, 2).text()).strip()

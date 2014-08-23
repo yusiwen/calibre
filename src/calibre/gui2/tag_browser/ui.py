@@ -9,8 +9,8 @@ __docformat__ = 'restructuredtext en'
 
 from functools import partial
 
-from PyQt4.Qt import (Qt, QIcon, QWidget, QHBoxLayout, QVBoxLayout, QShortcut,
-        QKeySequence, QToolButton, QString, QLabel, QFrame, QTimer,
+from PyQt5.Qt import (Qt, QIcon, QWidget, QHBoxLayout, QVBoxLayout, QShortcut,
+        QKeySequence, QToolButton, QLabel, QFrame, QTimer,
         QMenu, QPushButton, QActionGroup)
 
 from calibre.gui2 import error_dialog, question_dialog
@@ -25,7 +25,10 @@ from calibre.gui2.dialogs.edit_authors_dialog import EditAuthorsDialog
 
 class TagBrowserMixin(object):  # {{{
 
-    def __init__(self, db):
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def init_tag_browser_mixin(self, db):
         self.library_view.model().count_changed_signal.connect(self.tags_view.recount)
         self.tags_view.set_database(db, self.alter_tb)
         self.tags_view.tags_marked.connect(self.search.set_search_string)
@@ -111,7 +114,7 @@ class TagBrowserMixin(object):  # {{{
             db.field_metadata.remove_user_categories()
             for k in d.categories:
                 db.field_metadata.add_user_category('@' + k, k)
-            db.data.change_search_locations(db.field_metadata.get_search_terms())
+            db.new_api.refresh_search_locations()
             self.tags_view.recount()
 
     def do_delete_user_category(self, category_name):
@@ -252,8 +255,7 @@ class TagBrowserMixin(object):  # {{{
         if not question_dialog(self.tags_view,
                     title=_('Delete item'),
                     msg='<p>'+
-                    _('%s will be deleted from all books. Are you sure?')
-                                %orig_name,
+                    _('%s will be deleted from all books. Are you sure?') %orig_name,
                     skip_dialog_name='tag_item_delete',
                     skip_dialog_msg=_('Show this confirmation again')):
             return
@@ -371,7 +373,7 @@ class TagBrowserWidget(QWidget):  # {{{
         self.item_search.initialize('tag_browser_search')
         self.item_search.lineEdit().returnPressed.connect(self.do_find)
         self.item_search.lineEdit().textEdited.connect(self.find_text_changed)
-        self.item_search.activated[QString].connect(self.do_find)
+        self.item_search.activated[str].connect(self.do_find)
         self.item_search.completer().setCaseSensitivity(Qt.CaseSensitive)
 
         parent.tags_view = TagsView(parent)
@@ -408,7 +410,7 @@ class TagBrowserWidget(QWidget):  # {{{
         sb.bg = QActionGroup(sb)
 
         # Must be in the same order as db2.CATEGORY_SORTS
-        for i, x in enumerate((_('Sort by name'), _('Sort by popularity'),
+        for i, x in enumerate((_('Sort by name'), _('Sort by number of books'),
                   _('Sort by average rating'))):
             a = sb.m.addAction(x)
             sb.bg.addAction(a)
@@ -436,7 +438,7 @@ class TagBrowserWidget(QWidget):  # {{{
                     'match any or all of them'))
         ma.setStatusTip(ma.toolTip())
 
-        mt = l.m.addAction(_('Manage authors, tags, etc'))
+        mt = l.m.addAction(_('Manage authors, tags, etc.'))
         mt.setToolTip(_('All of these category_managers are available by right-clicking '
                        'on items in the tag browser above'))
         mt.m = l.manage_menu = QMenu(l.m)

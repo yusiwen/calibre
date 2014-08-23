@@ -11,7 +11,7 @@ import sys, os, textwrap
 from threading import Thread
 from functools import partial
 
-from PyQt4.Qt import (QPushButton, QFrame, QVariant, QMenu, QInputDialog,
+from PyQt5.Qt import (QPushButton, QFrame, QMenu, QInputDialog,
     QDialog, QVBoxLayout, QDialogButtonBox, QSize, QStackedWidget, QWidget,
     QLabel, Qt, pyqtSignal, QIcon, QTreeWidget, QGridLayout, QTreeWidgetItem,
     QToolButton, QItemSelectionModel, QCursor, QKeySequence)
@@ -330,12 +330,12 @@ class ItemView(QFrame):  # {{{
 
     def populate_item_pane(self):
         item = self.current_item
-        name = unicode(item.data(0, Qt.DisplayRole).toString())
+        name = unicode(item.data(0, Qt.DisplayRole) or '')
         self.item_pane.heading.setText('<h2>%s</h2>'%name)
         self.icon_label.setPixmap(item.data(0, Qt.DecorationRole
-                                            ).toPyObject().pixmap(32, 32))
+                                            ).pixmap(32, 32))
         tt = _('This entry points to an existing destination')
-        toc = item.data(0, Qt.UserRole).toPyObject()
+        toc = item.data(0, Qt.UserRole)
         if toc.dest_exists is False:
             tt = _('The location this entry points to does not exist')
         elif toc.dest_exists is None:
@@ -487,8 +487,17 @@ class TreeWidget(QTreeWidget):  # {{{
     def title_case(self):
         from calibre.utils.titlecase import titlecase
         for item in self.selectedItems():
-            t = unicode(item.data(0, Qt.DisplayRole).toString())
+            t = unicode(item.data(0, Qt.DisplayRole) or '')
             item.setData(0, Qt.DisplayRole, titlecase(t))
+
+    def bulk_rename(self):
+        from calibre.gui2.tweak_book.file_list import get_bulk_rename_settings
+        sort_map = {item:i for i, item in enumerate(self.iteritems())}
+        items = sorted(self.selectedItems(), key=lambda x:sort_map.get(x, -1))
+        fmt, num = get_bulk_rename_settings(self, len(items), msg=_(
+            'All selected items will be renamed to the form prefix-number'), sanitize=lambda x:x, leading_zeros=False)
+        for i, item in enumerate(items):
+            item.setData(0, Qt.DisplayRole, fmt % (num + i))
 
     def keyPressEvent(self, ev):
         if ev.key() == Qt.Key_Left and ev.modifiers() & Qt.CTRL:
@@ -517,7 +526,7 @@ class TreeWidget(QTreeWidget):  # {{{
 
         if item is not None:
             m = QMenu()
-            ci = unicode(item.data(0, Qt.DisplayRole).toString())
+            ci = unicode(item.data(0, Qt.DisplayRole) or '')
             p = item.parent() or self.invisibleRootItem()
             idx = p.indexOfChild(item)
             if idx > 0:
@@ -531,6 +540,7 @@ class TreeWidget(QTreeWidget):  # {{{
                 m.addAction(QIcon(I('forward.png')), (_('Indent "%s"')%ci)+key(Qt.Key_Right), self.move_right)
             m.addAction(QIcon(I('edit_input.png')), _('Change the location this entry points to'), self.edit_item)
             m.addAction(_('Change all selected items to title case'), self.title_case)
+            m.addAction(QIcon(I('modified.png')), _('Bulk rename all selected items'), self.bulk_rename)
             m.exec_(QCursor.pos())
 # }}}
 
@@ -612,7 +622,7 @@ class TOCView(QWidget):  # {{{
         return super(TOCView, self).event(e)
 
     def item_title(self, item):
-        return unicode(item.data(0, Qt.DisplayRole).toString())
+        return unicode(item.data(0, Qt.DisplayRole) or '')
 
     def del_items(self):
         self.tocw.del_items()
@@ -662,7 +672,7 @@ class TOCView(QWidget):  # {{{
         self.tocw.move_down()
 
     def update_status_tip(self, item):
-        c = item.data(0, Qt.UserRole).toPyObject()
+        c = item.data(0, Qt.UserRole)
         if c is not None:
             frag = c.frag or ''
             if frag:
@@ -673,8 +683,8 @@ class TOCView(QWidget):  # {{{
     def data_changed(self, top_left, bottom_right):
         for r in xrange(top_left.row(), bottom_right.row()+1):
             idx = self.tocw.model().index(r, 0, top_left.parent())
-            new_title = unicode(idx.data(Qt.DisplayRole).toString()).strip()
-            toc = idx.data(Qt.UserRole).toPyObject()
+            new_title = unicode(idx.data(Qt.DisplayRole) or '').strip()
+            toc = idx.data(Qt.UserRole)
             if toc is not None:
                 toc.title = new_title or _('(Untitled)')
             item = self.tocw.itemFromIndex(idx)
@@ -701,7 +711,7 @@ class TOCView(QWidget):  # {{{
                 'The location this entry point to does not exist:\n%s')
                 %child.dest_error)
         else:
-            c.setData(0, Qt.ToolTipRole, QVariant())
+            c.setData(0, Qt.ToolTipRole, None)
 
         self.update_status_tip(c)
 
@@ -733,7 +743,7 @@ class TOCView(QWidget):  # {{{
 
     def update_item(self, item, where, name, frag, title):
         if isinstance(frag, tuple):
-            frag = add_id(self.ebook, name, frag)
+            frag = add_id(self.ebook, name, *frag)
         child = TOC(title, name, frag)
         child.dest_exists = True
         if item is None:
@@ -764,8 +774,8 @@ class TOCView(QWidget):  # {{{
         def process_node(parent, toc_parent):
             for i in xrange(parent.childCount()):
                 item = parent.child(i)
-                title = unicode(item.data(0, Qt.DisplayRole).toString()).strip()
-                toc = item.data(0, Qt.UserRole).toPyObject()
+                title = unicode(item.data(0, Qt.DisplayRole) or '').strip()
+                toc = item.data(0, Qt.UserRole)
                 dest, frag = toc.dest, toc.frag
                 toc = toc_parent.add(title, dest, frag)
                 process_node(item, toc)

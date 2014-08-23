@@ -9,7 +9,7 @@ import textwrap
 from functools import partial
 from collections import OrderedDict
 
-from PyQt4.Qt import (QMainWindow, Qt, QIcon, QStatusBar, QFont, QWidget,
+from PyQt5.Qt import (QMainWindow, Qt, QIcon, QStatusBar, QFont, QWidget,
         QScrollArea, QStackedWidget, QVBoxLayout, QLabel, QFrame, QKeySequence,
         QToolBar, QSize, pyqtSignal, QPixmap, QToolButton, QAction,
         QDialogButtonBox, QHBoxLayout)
@@ -156,6 +156,7 @@ class Browser(QScrollArea):  # {{{
             self.widgets.append(w)
             self._layout.addWidget(w)
             w.plugin_activated.connect(self.show_plugin.emit)
+        self._layout.addStretch(1)
 
 
 # }}}

@@ -93,6 +93,40 @@ class CalibreUtils
         return this.viewport_to_document(r.left, 0, elem.ownerDocument)[0]
     # }}}
 
+    abstop: (elem) -> # {{{
+        # The left edge of elem in document co-ords. Works in all
+        # circumstances, including column layout. Note that this will cause
+        # a relayout if the render tree is dirty. Also, because of a bug in the
+        # version of WebKit bundled with Qt 4.8, this does not always work, see
+        # https://bugs.launchpad.net/bugs/1132641 for a test case.
+        r = elem.getBoundingClientRect()
+        return this.viewport_to_document(r.top, 0, elem.ownerDocument)[0]
+    # }}}
+
+    word_at_point: (x, y) -> # {{{
+        # Return the word at the specified point (in viewport co-ordinates)
+        range = if document.caretPositionFromPoint then document.caretPositionFromPoint(x, y) else document.caretRangeFromPoint(x, y)
+        if range == null
+            return null
+        node = range.startContainer
+        if node?.nodeType != Node.TEXT_NODE
+            return null
+        offset = range.startOffset
+        range = document.createRange()
+        range.selectNodeContents(node)
+        try
+            range.setStart(node, offset)
+            range.setEnd(node, offset+1)
+        catch error  # Happens if offset is invalid
+            null
+        range.expand('word')
+        ans = range.toString().trim()
+        range.detach()
+        matches = ans.split(/\b/)
+        return if matches.length > 0 then matches[0] else null
+
+    # }}}
+
 if window?
     window.calibre_utils = new CalibreUtils()
 

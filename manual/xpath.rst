@@ -1,5 +1,3 @@
-.. include:: global.rst
-
 .. _xpath-tutorial:
 
 XPath Tutorial
@@ -39,7 +37,7 @@ the prefix::
                  children of the <body> tag)
 
 This will match only ``<p>A very short ebook to demonstrate the use of XPath.</p>`` 
-in the `Sample ebook`_ but not any of the other ``<p>`` tags. The ``h:`` prefix
+in the :ref:`sample_ebook` but not any of the other ``<p>`` tags. The ``h:`` prefix
 in the above examples is needed to match XHTML tags. This is because internally,
 |app| represents all content as XHTML. In XHTML tags have a *namespace*, and
 ``h:`` is the namespace prefix for HTML tags.
@@ -86,6 +84,7 @@ to use the power of *regular expressions* via the built-in function :term:`re:te
 Here the ``.`` operator refers to the contents of the tag, just as the ``@`` operator referred
 to its attributes.
 
+.. _sample_ebook :
 
 Sample ebook
 ------------

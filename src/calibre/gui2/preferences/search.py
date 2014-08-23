@@ -5,12 +5,12 @@ __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-from PyQt4.Qt import QApplication
+from PyQt5.Qt import QApplication
 
 from calibre.gui2.preferences import ConfigWidgetBase, test_widget, \
         CommaSeparatedList
 from calibre.gui2.preferences.search_ui import Ui_Form
-from calibre.gui2 import config, error_dialog
+from calibre.gui2 import config, error_dialog, gprefs
 from calibre.utils.config import prefs
 from calibre.utils.icu import sort_key
 from calibre.library.caches import set_use_primary_find_in_search
@@ -26,6 +26,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
 
         r('search_as_you_type', config)
         r('highlight_search_matches', config)
+        r('show_highlight_toggle_button', gprefs)
         r('limit_search_columns', prefs)
         r('use_primary_find_in_search', prefs)
         r('limit_search_columns_to', prefs, setting=CommaSeparatedList)
@@ -140,7 +141,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
                                 _('The search term cannot be blank'),
                                 show=True)
         if idx != 0:
-            orig_name = unicode(self.gst_names.itemData(idx).toString())
+            orig_name = unicode(self.gst_names.itemData(idx) or '')
         else:
             orig_name = ''
         if name != orig_name:
@@ -205,7 +206,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         if idx == 0:
             self.gst_value.setText('')
         else:
-            name = unicode(self.gst_names.itemData(idx).toString())
+            name = unicode(self.gst_names.itemData(idx) or '')
             self.gst_value.setText(','.join(self.gst[name]))
         self.gst_value.blockSignals(False)
 

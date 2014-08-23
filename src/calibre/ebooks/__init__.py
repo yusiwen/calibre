@@ -30,8 +30,8 @@ BOOK_EXTENSIONS = ['lrf', 'rar', 'zip', 'rtf', 'lit', 'txt', 'txtz', 'text', 'ht
                    'html', 'htmlz', 'xhtml', 'pdf', 'pdb', 'updb', 'pdr', 'prc', 'mobi', 'azw', 'doc',
                    'epub', 'fb2', 'djv', 'djvu', 'lrx', 'cbr', 'cbz', 'cbc', 'oebzip',
                    'rb', 'imp', 'odt', 'chm', 'tpz', 'azw1', 'pml', 'pmlz', 'mbp', 'tan', 'snb',
-                   'xps', 'oxps', 'azw4', 'book', 'zbf', 'pobi', 'docx', 'md',
-                   'textile', 'markdown', 'ibook', 'iba', 'azw3', 'ps']
+                   'xps', 'oxps', 'azw4', 'book', 'zbf', 'pobi', 'docx', 'docm', 'md',
+                   'textile', 'markdown', 'ibook', 'ibooks', 'iba', 'azw3', 'ps', 'kepub']
 
 class HTMLRenderer(object):
 
@@ -41,7 +41,7 @@ class HTMLRenderer(object):
         self.exception = self.tb = None
 
     def __call__(self, ok):
-        from PyQt4.Qt import QImage, QPainter, QByteArray, QBuffer
+        from PyQt5.Qt import QImage, QPainter, QByteArray, QBuffer
         try:
             if not ok:
                 raise RuntimeError('Rendering of HTML failed.')
@@ -130,14 +130,16 @@ def render_html_svg_workaround(path_to_html, log, width=590, height=750):
 
 
 def render_html(path_to_html, width=590, height=750, as_xhtml=True):
-    from PyQt4.QtWebKit import QWebPage
-    from PyQt4.Qt import QEventLoop, QPalette, Qt, QUrl, QSize
+    from PyQt5.QtWebKitWidgets import QWebPage
+    from PyQt5.Qt import QEventLoop, QPalette, Qt, QUrl, QSize
     from calibre.gui2 import is_ok_to_use_qt
     if not is_ok_to_use_qt():
         return None
     path_to_html = os.path.abspath(path_to_html)
     with CurrentDir(os.path.dirname(path_to_html)):
         page = QWebPage()
+        settings = page.settings()
+        settings.setAttribute(settings.PluginsEnabled, False)
         pal = page.palette()
         pal.setBrush(QPalette.Background, Qt.white)
         page.setPalette(pal)
@@ -184,7 +186,9 @@ def calibre_cover(title, author_string, series_string=None,
     author_string = normalize(author_string)
     series_string = normalize(series_string)
     from calibre.utils.magick.draw import create_cover_page, TextLine
-    text = title + author_string + (series_string or u'')
+    import regex
+    pat = regex.compile(ur'\p{Cf}+', flags=regex.VERSION1)  # remove non-printing chars like the soft hyphen
+    text = pat.sub(u'', title + author_string + (series_string or u''))
     font_path = tweaks['generate_cover_title_font']
     if font_path is None:
         font_path = P('fonts/liberation/LiberationSerif-Bold.ttf')
@@ -201,10 +205,10 @@ def calibre_cover(title, author_string, series_string=None,
         font_path = pt.name
         cleanup = True
 
-    lines = [TextLine(title, title_size, font_path=font_path),
-            TextLine(author_string, author_size, font_path=font_path)]
+    lines = [TextLine(pat.sub(u'', title), title_size, font_path=font_path),
+            TextLine(pat.sub(u'', author_string), author_size, font_path=font_path)]
     if series_string:
-        lines.append(TextLine(series_string, author_size, font_path=font_path))
+        lines.append(TextLine(pat.sub(u'', series_string), author_size, font_path=font_path))
     if logo_path is None:
         logo_path = I('library.png')
     try:

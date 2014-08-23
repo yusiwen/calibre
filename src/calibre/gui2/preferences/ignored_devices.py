@@ -7,7 +7,7 @@ __license__   = 'GPL v3'
 __copyright__ = '2012, Kovid Goyal <kovid at kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-from PyQt4.Qt import (QLabel, QVBoxLayout, QListWidget, QListWidgetItem, Qt,
+from PyQt5.Qt import (QLabel, QVBoxLayout, QListWidget, QListWidgetItem, Qt,
                       QIcon)
 
 from calibre.customize.ui import enable_plugin
@@ -79,7 +79,7 @@ class ConfigWidget(ConfigWidgetBase):
         devs = {}
         for i in xrange(0, self.devices.count()):
             e = self.devices.item(i)
-            dev, uid = e.data(Qt.UserRole).toPyObject()
+            dev, uid = e.data(Qt.UserRole)
             if dev not in devs:
                 devs[dev] = []
             if e.checkState() == Qt.Checked:
@@ -90,14 +90,14 @@ class ConfigWidget(ConfigWidgetBase):
 
         for i in xrange(self.device_plugins.count()):
             e = self.device_plugins.item(i)
-            dev = e.data(Qt.UserRole).toPyObject()
+            dev = e.data(Qt.UserRole)
             if e.checkState() == Qt.Unchecked:
                 enable_plugin(dev)
 
-        return True # Restart required
+        return True  # Restart required
 
 if __name__ == '__main__':
-    from PyQt4.Qt import QApplication
+    from PyQt5.Qt import QApplication
     app = QApplication([])
     test_widget('Sharing', 'Ignored Devices')
 

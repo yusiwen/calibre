@@ -10,16 +10,17 @@ __docformat__ = 'restructuredtext en'
 from collections import OrderedDict
 from functools import partial
 
-from PyQt4.Qt import (QObject, QKeySequence, QAbstractItemModel, QModelIndex,
+from PyQt5.Qt import (QObject, QKeySequence, QAbstractItemModel, QModelIndex,
         Qt, QStyledItemDelegate, QTextDocument, QStyle, pyqtSignal, QFrame,
         QApplication, QSize, QRectF, QWidget, QTreeView,
         QGridLayout, QLabel, QRadioButton, QPushButton, QToolButton, QIcon)
 
 from calibre.utils.config import JSONConfig
+from calibre.utils.cleantext import clean_ascii_chars
 from calibre.constants import DEBUG
 from calibre import prints
 from calibre.utils.icu import sort_key, lower
-from calibre.gui2 import NONE, error_dialog, info_dialog
+from calibre.gui2 import error_dialog, info_dialog
 from calibre.utils.search_query_parser import SearchQueryParser, ParseException
 from calibre.gui2.search_box import SearchBox2
 
@@ -33,7 +34,7 @@ def finalize(shortcuts, custom_keys_map={}):  # {{{
     Resolve conflicts and assign keys to every action in shorcuts, which must
     be a OrderedDict. User specified mappings of unique names to keys (as a
     list of strings) should be passed in in custom_keys_map. Return a mapping
-    of unique names to resolved keys. Also sets the set_to_defaul member
+    of unique names to resolved keys. Also sets the set_to_default member
     correctly for each shortcut.
     '''
     seen, keys_map = {}, {}
@@ -58,7 +59,6 @@ def finalize(shortcuts, custom_keys_map={}):  # {{{
             seen[x] = shortcut
             keys.append(ks)
         keys = tuple(keys)
-        #print (111111, unique_name, candidates, keys)
 
         keys_map[unique_name] = keys
         ac = shortcut['action']
@@ -126,8 +126,6 @@ class Manager(QObject):  # {{{
         custom_keys_map = {un:tuple(keys) for un, keys in self.config.get(
             'map', {}).iteritems()}
         self.keys_map = finalize(self.shortcuts, custom_keys_map=custom_keys_map)
-        #import pprint
-        # pprint.pprint(self.keys_map)
 
     def replace_action(self, unique_name, new_action):
         '''
@@ -163,7 +161,7 @@ class Node(object):
         for child in self.children:
             yield child
 
-class ConfigModel(QAbstractItemModel, SearchQueryParser):
+class ConfigModel(SearchQueryParser, QAbstractItemModel):
 
     def __init__(self, keyboard, parent=None):
         QAbstractItemModel.__init__(self, parent)
@@ -224,7 +222,7 @@ class ConfigModel(QAbstractItemModel, SearchQueryParser):
         ip = index.internalPointer()
         if ip is not None and role == Qt.UserRole:
             return ip
-        return NONE
+        return None
 
     def flags(self, index):
         ans = QAbstractItemModel.flags(self, index)
@@ -447,7 +445,9 @@ class Editor(QFrame):  # {{{
         button = getattr(self, 'button%d'%which)
         button.setStyleSheet('QPushButton { font-weight: normal}')
         mods = int(ev.modifiers()) & ~Qt.KeypadModifier
-        txt = unicode(ev.text())
+        # for some reason qt sometimes produces ascii control codes in text,
+        # for example ctrl+shift+u will give text == '\x15' on linux
+        txt = clean_ascii_chars(ev.text())
         if txt and txt.lower() == txt.upper():
             # We have a symbol like ! or > etc. In this case the value of code
             # already includes Shift, so remove it
@@ -498,7 +498,7 @@ class Delegate(QStyledItemDelegate):  # {{{
         self.closeEditor.connect(self.editing_done)
 
     def to_doc(self, index):
-        data = index.data(Qt.UserRole).toPyObject()
+        data = index.data(Qt.UserRole)
         if data is None:
             html = _('<b>This shortcut no longer exists</b>')
         elif data.is_shortcut:
@@ -538,8 +538,12 @@ class Delegate(QStyledItemDelegate):  # {{{
         w = Editor(parent=parent)
         w.editing_done.connect(self.editor_done)
         self.editing_index = index
+        self.current_editor = w
         self.sizeHintChanged.emit(index)
         return w
+
+    def accept_changes(self):
+        self.editor_done(self.current_editor)
 
     def editor_done(self, editor):
         self.commitData.emit(editor)
@@ -552,7 +556,7 @@ class Delegate(QStyledItemDelegate):  # {{{
     def setModelData(self, editor, model, index):
         self.closeEditor.emit(editor, self.NoHint)
         custom_keys = editor.custom_keys
-        sc = index.data(Qt.UserRole).toPyObject().data
+        sc = index.data(Qt.UserRole).data
         if custom_keys is None:
             candidates = []
             for ckey in sc['default_keys']:
@@ -579,6 +583,7 @@ class Delegate(QStyledItemDelegate):  # {{{
         editor.setGeometry(option.rect)
 
     def editing_done(self, *args):
+        self.current_editor = None
         idx = self.editing_index
         self.editing_index = None
         if idx is not None:
@@ -625,6 +630,8 @@ class ShortcutConfig(QWidget):  # {{{
         self.changed_signal.emit()
 
     def commit(self):
+        if self.view.state() == self.view.EditingState:
+            self.delegate.accept_changes()
         self._model.commit()
 
     def initialize(self, keyboard):
@@ -688,4 +695,3 @@ class ShortcutConfig(QWidget):  # {{{
             self.view.setFocus(Qt.OtherFocusReason)
 
 # }}}
-

@@ -16,7 +16,7 @@ from calibre.constants import preferred_encoding
 from calibre.db.utils import force_to_bool
 from calibre.utils.config_base import prefs
 from calibre.utils.date import parse_date, UNDEFINED_DATE, now, dt_as_local
-from calibre.utils.icu import primary_find, sort_key
+from calibre.utils.icu import primary_contains, sort_key
 from calibre.utils.localization import lang_map, canonicalize_lang
 from calibre.utils.search_query_parser import SearchQueryParser, ParseException
 
@@ -73,7 +73,7 @@ def _match(query, value, matchkind, use_primary_find_in_search=True):
                     return True
             elif matchkind == CONTAINS_MATCH:
                 if use_primary_find_in_search:
-                    if primary_find(query, t)[0] != -1:
+                    if primary_contains(query, t):
                         return True
                 elif query in t:
                         return True
@@ -303,9 +303,9 @@ class BooleanSearch(object):  # {{{
         self.local_empty     = icu_lower(_('empty'))
         self.local_blank     = icu_lower(_('blank'))
         self.local_bool_values = {
-            self.local_no, self.local_unchecked, '_no', 'false', 'no',
-            self.local_yes, self.local_checked, '_yes', 'true', 'yes',
-            self.local_empty, self.local_blank, '_empty', 'empty'}
+            self.local_no, self.local_unchecked, '_no', 'false', 'no', 'unchecked', '_unchecked',
+            self.local_yes, self.local_checked, 'checked', '_checked', '_yes', 'true', 'yes',
+            self.local_empty, self.local_blank, 'blank', '_blank', '_empty', 'empty'}
 
     def __call__(self, query, field_iter, bools_are_tristate):
         matches = set()
@@ -315,20 +315,20 @@ class BooleanSearch(object):  # {{{
             val = force_to_bool(val)
             if not bools_are_tristate:
                 if val is None or not val:  # item is None or set to false
-                    if query in {self.local_no, self.local_unchecked, 'no', '_no', 'false'}:
+                    if query in {self.local_no, self.local_unchecked, 'unchecked', '_unchecked', 'no', '_no', 'false'}:
                         matches |= book_ids
                 else:  # item is explicitly set to true
-                    if query in {self.local_yes, self.local_checked, 'yes', '_yes', 'true'}:
+                    if query in {self.local_yes, self.local_checked, 'checked', '_checked', 'yes', '_yes', 'true'}:
                         matches |= book_ids
             else:
                 if val is None:
-                    if query in {self.local_empty, self.local_blank, 'empty', '_empty', 'false'}:
+                    if query in {self.local_empty, self.local_blank, 'blank', '_blank', 'empty', '_empty', 'false'}:
                         matches |= book_ids
                 elif not val:  # is not None and false
-                    if query in {self.local_no, self.local_unchecked, 'no', '_no', 'true'}:
+                    if query in {self.local_no, self.local_unchecked, 'unchecked', '_unchecked', 'no', '_no', 'true'}:
                         matches |= book_ids
                 else:  # item is not None and true
-                    if query in {self.local_yes, self.local_checked, 'yes', '_yes', 'true'}:
+                    if query in {self.local_yes, self.local_checked, 'checked', '_checked', 'yes', '_yes', 'true'}:
                         matches |= book_ids
         return matches
 
@@ -339,17 +339,13 @@ class KeyPairSearch(object):  # {{{
     def __call__(self, query, field_iter, candidates, use_primary_find):
         matches = set()
         if ':' in query:
-            q = [q.strip() for q in query.split(':')]
-            if len(q) != 2:
-                raise ParseException(
-                 _('Invalid query format for colon-separated search: {0}').format(query))
+            q = [q.strip() for q in query.partition(':')[0::2]]
             keyq, valq = q
             keyq_mkind, keyq = _matchkind(keyq)
             valq_mkind, valq = _matchkind(valq)
         else:
             keyq = keyq_mkind = ''
             valq_mkind, valq = _matchkind(query)
-            keyq_mkind
 
         if valq in {'true', 'false'}:
             found = set()
@@ -566,10 +562,16 @@ class Parser(SearchQueryParser):  # {{{
             if (dt in ('rating', 'int', 'float') or
                     (dt == 'composite' and
                      fm['display'].get('composite_sort', '') == 'number')):
-                field = self.dbcache.fields[location]
+                if location == 'id':
+                    is_many = False
+                    def fi(default_value=None):
+                        for qid in candidates:
+                            yield qid, {qid}
+                else:
+                    field = self.dbcache.fields[location]
+                    fi, is_many = partial(self.field_iter, location, candidates), field.is_many
                 return self.num_search(
-                    icu_lower(query), partial(self.field_iter, location, candidates),
-                    location, dt, candidates, is_many=field.is_many)
+                    icu_lower(query), fi, location, dt, candidates, is_many=is_many)
 
             # take care of the 'count' operator for is_multiples
             if (fm['is_multiple'] and
@@ -606,8 +608,8 @@ class Parser(SearchQueryParser):  # {{{
         for x, fm in self.field_metadata.iteritems():
             if x.startswith('@'):
                 continue
-            if fm['search_terms'] and x != 'series_sort':
-                if x not in self.virtual_fields:
+            if fm['search_terms'] and x not in {'series_sort', 'id'}:
+                if x not in self.virtual_fields and x != 'uuid':
                     # We dont search virtual fields because if we do, search
                     # caching will not be used
                     all_locs.add(x)
@@ -812,7 +814,7 @@ class Search(object):
     def _update_caches(self, sqp, book_ids):
         book_ids = sqp.all_book_ids = set(book_ids)
         remove = set()
-        for query, result in self.cache:
+        for query, result in tuple(self.cache):
             try:
                 matches = sqp.parse(query)
             except ParseException:

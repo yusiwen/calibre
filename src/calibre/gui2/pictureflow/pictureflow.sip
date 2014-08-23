@@ -3,8 +3,7 @@
 
 %Module(name=pictureflow, version=1)
 
-%Import QtCore/QtCoremod.sip
-%Import QtGui/QtGuimod.sip
+%Import QtWidgets/QtWidgetsmod.sip
 
 class FlowImages : QObject {
 
@@ -40,6 +39,10 @@ public :
   QSize slideSize() const;
 
   void setSlideSize(QSize size);
+
+  bool preserveAspectRatio() const;
+
+  void setPreserveAspectRatio(bool preserve);
 
   QFont subtitleFont() const;
 

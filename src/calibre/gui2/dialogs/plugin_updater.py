@@ -9,17 +9,18 @@ __docformat__ = 'restructuredtext en'
 
 import re, datetime, traceback
 from lxml import html
-from PyQt4.Qt import (Qt, QUrl, QFrame, QVBoxLayout, QLabel, QBrush, QTextEdit,
+from PyQt5.Qt import (Qt, QUrl, QFrame, QVBoxLayout, QLabel, QBrush, QTextEdit,
                       QComboBox, QAbstractItemView, QHBoxLayout, QDialogButtonBox,
-                      QAbstractTableModel, QVariant, QTableView, QModelIndex,
+                      QAbstractTableModel, QTableView, QModelIndex,
                       QSortFilterProxyModel, QAction, QIcon, QDialog,
-                      QFont, QPixmap, QSize)
+                      QFont, QPixmap, QSize, QLineEdit)
+
 from calibre import browser, prints
-from calibre.constants import numeric_version, iswindows, isosx, DEBUG
-from calibre.customize.ui import (initialized_plugins, is_disabled, remove_plugin,
-                                  add_plugin, enable_plugin, disable_plugin,
-                                  NameConflict, has_external_plugins)
-from calibre.gui2 import error_dialog, question_dialog, info_dialog, NONE, open_url, gprefs
+from calibre.constants import numeric_version, iswindows, isosx, DEBUG, __appname__, __version__
+from calibre.customize.ui import (
+    initialized_plugins, is_disabled, remove_plugin, add_plugin, enable_plugin, disable_plugin,
+    NameConflict, has_external_plugins)
+from calibre.gui2 import error_dialog, question_dialog, info_dialog, open_url, gprefs
 from calibre.gui2.preferences.plugins import ConfigWidget
 from calibre.utils.date import UNDEFINED_DATE, format_date
 
@@ -105,6 +106,7 @@ def get_installed_plugin_status(display_plugin):
 
 
 class ImageTitleLayout(QHBoxLayout):
+
     '''
     A reusable layout widget displaying an image followed by a title
     '''
@@ -130,6 +132,7 @@ class ImageTitleLayout(QHBoxLayout):
 
 
 class SizePersistedDialog(QDialog):
+
     '''
     This dialog is a base class for any dialogs that want their size/position
     restored when they are next opened.
@@ -176,6 +179,7 @@ class VersionHistoryDialog(SizePersistedDialog):
 
 
 class PluginFilterComboBox(QComboBox):
+
     def __init__(self, parent):
         QComboBox.__init__(self, parent)
         items = [_('All'), _('Installed'), _('Update available'), _('Not installed')]
@@ -208,6 +212,10 @@ class DisplayPlugin(object):
     def is_installed(self):
         return self.installed_version is not None
 
+    def name_matches_filter(self, filter_text):
+        # filter_text is already lowercase @set_filter_text
+        return filter_text in icu_lower(self.name)  # case-insensitive filtering
+
     def is_upgrade_available(self):
         return self.is_installed() and (self.installed_version < self.available_version
                 or self.is_deprecated)
@@ -233,22 +241,27 @@ class DisplayPluginSortFilterModel(QSortFilterProxyModel):
         self.setSortRole(Qt.UserRole)
         self.setSortCaseSensitivity(Qt.CaseInsensitive)
         self.filter_criteria = FILTER_ALL
+        self.filter_text = ""
 
     def filterAcceptsRow(self, sourceRow, sourceParent):
         index = self.sourceModel().index(sourceRow, 0, sourceParent)
         display_plugin = self.sourceModel().display_plugins[index.row()]
         if self.filter_criteria == FILTER_ALL:
-            return not (display_plugin.is_deprecated and not display_plugin.is_installed())
+            return not (display_plugin.is_deprecated and not display_plugin.is_installed()) and display_plugin.name_matches_filter(self.filter_text)
         if self.filter_criteria == FILTER_INSTALLED:
-            return display_plugin.is_installed()
+            return display_plugin.is_installed() and display_plugin.name_matches_filter(self.filter_text)
         if self.filter_criteria == FILTER_UPDATE_AVAILABLE:
-            return display_plugin.is_upgrade_available()
+            return display_plugin.is_upgrade_available() and display_plugin.name_matches_filter(self.filter_text)
         if self.filter_criteria == FILTER_NOT_INSTALLED:
-            return not display_plugin.is_installed() and not display_plugin.is_deprecated
+            return not display_plugin.is_installed() and not display_plugin.is_deprecated and display_plugin.name_matches_filter(self.filter_text)
         return False
 
     def set_filter_criteria(self, filter_value):
         self.filter_criteria = filter_value
+        self.invalidateFilter()
+
+    def set_filter_text(self, filter_text_value):
+        self.filter_text = icu_lower(unicode(filter_text_value))
         self.invalidateFilter()
 
 
@@ -257,7 +270,7 @@ class DisplayPluginModel(QAbstractTableModel):
     def __init__(self, display_plugins):
         QAbstractTableModel.__init__(self)
         self.display_plugins = display_plugins
-        self.headers = map(QVariant, [_('Plugin Name'), _('Donate'), _('Status'), _('Installed'),
+        self.headers = map(unicode, [_('Plugin Name'), _('Donate'), _('Status'), _('Installed'),
                                       _('Available'), _('Released'), _('Calibre'), _('Author')])
 
     def rowCount(self, *args):
@@ -269,36 +282,36 @@ class DisplayPluginModel(QAbstractTableModel):
     def headerData(self, section, orientation, role):
         if role == Qt.DisplayRole and orientation == Qt.Horizontal:
             return self.headers[section]
-        return NONE
+        return None
 
     def data(self, index, role):
         if not index.isValid():
-            return NONE
+            return None
         row, col = index.row(), index.column()
         if row < 0 or row >= self.rowCount():
-            return NONE
+            return None
         display_plugin = self.display_plugins[row]
         if role in [Qt.DisplayRole, Qt.UserRole]:
             if col == 0:
-                return QVariant(display_plugin.name)
+                return display_plugin.name
             if col == 1:
                 if display_plugin.donation_link:
-                    return QVariant(_('PayPal'))
+                    return _('PayPal')
             if col == 2:
                 return self._get_status(display_plugin)
             if col == 3:
-                return QVariant(self._get_display_version(display_plugin.installed_version))
+                return self._get_display_version(display_plugin.installed_version)
             if col == 4:
-                return QVariant(self._get_display_version(display_plugin.available_version))
+                return self._get_display_version(display_plugin.available_version)
             if col == 5:
                 if role == Qt.UserRole:
                     return self._get_display_release_date(display_plugin.release_date, 'yyyyMMdd')
                 else:
                     return self._get_display_release_date(display_plugin.release_date)
             if col == 6:
-                return QVariant(self._get_display_version(display_plugin.calibre_required_version))
+                return self._get_display_version(display_plugin.calibre_required_version)
             if col == 7:
-                return QVariant(display_plugin.author)
+                return display_plugin.author
         elif role == Qt.DecorationRole:
             if col == 0:
                 return self._get_status_icon(display_plugin)
@@ -307,18 +320,18 @@ class DisplayPluginModel(QAbstractTableModel):
                     return QIcon(I('donate.png'))
         elif role == Qt.ToolTipRole:
             if col == 1 and display_plugin.donation_link:
-                return QVariant(_('This plugin is FREE but you can reward the developer for their effort\n'
+                return _('This plugin is FREE but you can reward the developer for their effort\n'
                                   'by donating to them via PayPal.\n\n'
-                                  'Right-click and choose Donate to reward: ')+display_plugin.author)
+                                  'Right-click and choose Donate to reward: ')+display_plugin.author
             else:
                 return self._get_status_tooltip(display_plugin)
         elif role == Qt.ForegroundRole:
             if col != 1:  # Never change colour of the donation column
                 if display_plugin.is_deprecated:
-                    return QVariant(QBrush(Qt.blue))
+                    return QBrush(Qt.blue)
                 if display_plugin.is_disabled():
-                    return QVariant(QBrush(Qt.gray))
-        return NONE
+                    return QBrush(Qt.gray)
+        return None
 
     def plugin_to_index(self, display_plugin):
         for i, p in enumerate(self.display_plugins):
@@ -332,8 +345,8 @@ class DisplayPluginModel(QAbstractTableModel):
 
     def _get_display_release_date(self, date_value, format='dd MMM yyyy'):
         if date_value and date_value != UNDEFINED_DATE:
-            return QVariant(format_date(date_value, format))
-        return NONE
+            return format_date(date_value, format)
+        return None
 
     def _get_display_version(self, version):
         if version is None:
@@ -382,30 +395,31 @@ class DisplayPluginModel(QAbstractTableModel):
 
     def _get_status_tooltip(self, display_plugin):
         if display_plugin.is_deprecated:
-            return QVariant(_('This plugin has been deprecated and should be uninstalled')+'\n\n'+
+            return (_('This plugin has been deprecated and should be uninstalled')+'\n\n'+
                             _('Right-click to see more options'))
         if not display_plugin.is_valid_platform():
-            return QVariant(_('This plugin can only be installed on: %s') %
+            return (_('This plugin can only be installed on: %s') %
                             ', '.join(display_plugin.platforms)+'\n\n'+
                             _('Right-click to see more options'))
         if numeric_version < display_plugin.calibre_required_version:
-            return QVariant(_('You must upgrade to at least Calibre %s before installing this plugin') %
+            return (_('You must upgrade to at least Calibre %s before installing this plugin') %
                             self._get_display_version(display_plugin.calibre_required_version)+'\n\n'+
                             _('Right-click to see more options'))
         if display_plugin.installed_version < display_plugin.available_version:
             if display_plugin.installed_version is None:
-                return QVariant(_('You can install this plugin')+'\n\n'+
+                return (_('You can install this plugin')+'\n\n'+
                                 _('Right-click to see more options'))
             else:
-                return QVariant(_('A new version of this plugin is available')+'\n\n'+
+                return (_('A new version of this plugin is available')+'\n\n'+
                                 _('Right-click to see more options'))
-        return QVariant(_('This plugin is installed and up-to-date')+'\n\n'+
+        return (_('This plugin is installed and up-to-date')+'\n\n'+
                         _('Right-click to see more options'))
 
 
 class PluginUpdaterDialog(SizePersistedDialog):
 
     initial_extra_size = QSize(350, 100)
+    forum_label_text = _('Plugin homepage')
 
     def __init__(self, gui, initial_filter=FILTER_UPDATE_AVAILABLE):
         SizePersistedDialog.__init__(self, gui, 'Plugin Updater plugin:plugin updater dialog')
@@ -455,6 +469,14 @@ class PluginUpdaterDialog(SizePersistedDialog):
         header_layout.addWidget(self.filter_combo)
         header_layout.addStretch(10)
 
+        # filter plugins by name
+        header_layout.addWidget(QLabel(_('Filter by name')+':', self))
+        self.filter_by_name_lineedit = QLineEdit(self)
+        self.filter_by_name_lineedit.setText("")
+        self.filter_by_name_lineedit.textChanged.connect(self._filter_name_lineedit_changed)
+
+        header_layout.addWidget(self.filter_by_name_lineedit)
+
         self.plugin_view = QTableView(self)
         self.plugin_view.horizontalHeader().setStretchLastSection(True)
         self.plugin_view.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -466,7 +488,7 @@ class PluginUpdaterDialog(SizePersistedDialog):
 
         details_layout = QHBoxLayout()
         layout.addLayout(details_layout)
-        forum_label = QLabel('<a href="http://www.foo.com/">Plugin Forum Thread</a>', self)
+        forum_label = self.forum_label = QLabel('')
         forum_label.setTextInteractionFlags(Qt.LinksAccessibleByMouse | Qt.LinksAccessibleByKeyboard)
         forum_label.linkActivated.connect(self._forum_label_activated)
         details_layout.addWidget(QLabel(_('Description')+':', self), 0, Qt.AlignLeft)
@@ -491,6 +513,12 @@ class PluginUpdaterDialog(SizePersistedDialog):
         self.configure_button.clicked.connect(self._configure_clicked)
         self.configure_button.setEnabled(False)
         layout.addWidget(self.button_box)
+
+    def update_forum_label(self):
+        txt = ''
+        if self.forum_link:
+            txt = '<a href="%s">%s</a>' % (self.forum_link, self.forum_label_text)
+        self.forum_label.setText(txt)
 
     def _create_context_menu(self):
         self.plugin_view.setContextMenuPolicy(Qt.ActionsContextMenu)
@@ -578,6 +606,7 @@ class PluginUpdaterDialog(SizePersistedDialog):
             self.configure_action.setEnabled(False)
             self.toggle_enabled_action.setEnabled(False)
             self.donate_enabled_action.setEnabled(False)
+        self.update_forum_label()
 
     def _donate_clicked(self):
         plugin = self._selected_display_plugin()
@@ -593,12 +622,16 @@ class PluginUpdaterDialog(SizePersistedDialog):
         self.plugin_view.setFocus()
 
     def _filter_combo_changed(self, idx):
+        self.filter_by_name_lineedit.setText("")  # clear the name filter text when a different group was selected
         self.proxy_model.set_filter_criteria(idx)
         if idx == FILTER_NOT_INSTALLED:
             self.plugin_view.sortByColumn(5, Qt.DescendingOrder)
         else:
             self.plugin_view.sortByColumn(0, Qt.AscendingOrder)
         self._select_and_focus_view()
+
+    def _filter_name_lineedit_changed(self, text):
+        self.proxy_model.set_filter_text(text)  # set the filter text for filterAcceptsRow
 
     def _forum_label_activated(self):
         if self.forum_link:
@@ -639,7 +672,7 @@ class PluginUpdaterDialog(SizePersistedDialog):
             return
         self._uninstall_plugin(display_plugin.name)
         if self.proxy_model.filter_criteria in [FILTER_INSTALLED, FILTER_UPDATE_AVAILABLE]:
-            self.model.reset()
+            self.model.beginResetModel(), self.model.endResetModel()
             self._select_and_focus_view()
         else:
             self._select_and_focus_view(change_selection=False)
@@ -673,6 +706,8 @@ class PluginUpdaterDialog(SizePersistedDialog):
 
         do_restart = False
         try:
+            from calibre.customize.ui import config
+            installed_plugins = frozenset(config['plugins'])
             try:
                 plugin = add_plugin(zip_path)
             except NameConflict as e:
@@ -681,7 +716,7 @@ class PluginUpdaterDialog(SizePersistedDialog):
             # Check for any toolbars to add to.
             widget = ConfigWidget(self.gui)
             widget.gui = self.gui
-            widget.check_for_add_to_toolbars(plugin)
+            widget.check_for_add_to_toolbars(plugin, previously_installed=plugin.name in installed_plugins)
             self.gui.status_bar.showMessage(_('Plugin installed: %s') % display_plugin.name)
             d = info_dialog(self.gui, _('Success'),
                     _('Plugin <b>{0}</b> successfully installed under <b>'
@@ -714,12 +749,12 @@ class PluginUpdaterDialog(SizePersistedDialog):
                          det_msg=traceback.format_exc(), show=True)
             if DEBUG:
                 prints('Due to error now uninstalling plugin: %s'%display_plugin.name)
-                remove_plugin(display_plugin.name)
-                display_plugin.plugin = None
+            remove_plugin(display_plugin.name)
+            display_plugin.plugin = None
 
         display_plugin.uninstall_plugins = []
         if self.proxy_model.filter_criteria in [FILTER_NOT_INSTALLED, FILTER_UPDATE_AVAILABLE]:
-            self.model.reset()
+            self.model.beginResetModel(), self.model.endResetModel()
             self._select_and_focus_view()
         else:
             self.model.refresh_plugin(display_plugin)
@@ -802,7 +837,7 @@ class PluginUpdaterDialog(SizePersistedDialog):
 
     def _download_zip(self, plugin_zip_url):
         from calibre.ptempfile import PersistentTemporaryFile
-        br = browser()
+        br = browser(user_agent='%s %s' % (__appname__, __version__))
         raw = br.open_novisit(plugin_zip_url).read()
         with PersistentTemporaryFile('.zip') as pt:
             pt.write(raw)

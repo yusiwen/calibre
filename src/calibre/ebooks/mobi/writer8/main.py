@@ -14,6 +14,7 @@ from io import BytesIO
 from struct import pack
 
 import cssutils
+from cssutils.css import CSSRule
 from lxml import etree
 
 from calibre import isbytestring, force_unicode
@@ -151,11 +152,23 @@ class KF8Writer(object):
 
         for item in self.oeb.manifest:
             if item.media_type in OEB_STYLES:
+                sheet = self.data(item)
                 if not self.opts.expand_css and hasattr(item.data, 'cssText'):
-                    condense_sheet(self.data(item))
-                data = self.data(item).cssText
+                    condense_sheet(sheet)
                 sheets[item.href] = len(self.flows)
-                self.flows.append(force_unicode(data, 'utf-8'))
+                self.flows.append(sheet)
+
+        def fix_import_rules(sheet):
+            changed = False
+            for rule in sheet.cssRules.rulesOfType(CSSRule.IMPORT_RULE):
+                if rule.href:
+                    href = item.abshref(rule.href)
+                    idx = sheets.get(href, None)
+                    if idx is not None:
+                        idx = to_ref(idx)
+                        rule.href = 'kindle:flow:%s?mime=text/css'%idx
+                        changed = True
+            return changed
 
         for item in self.oeb.spine:
             root = self.data(item)
@@ -174,6 +187,10 @@ class KF8Writer(object):
                 if not raw or not raw.strip():
                     extract(tag)
                     continue
+                sheet = cssutils.parseString(raw, validate=False)
+                if fix_import_rules(sheet):
+                    raw = force_unicode(sheet.cssText, 'utf-8')
+
                 repl = etree.Element(XHTML('link'), type='text/css',
                         rel='stylesheet')
                 repl.tail='\n'
@@ -186,6 +203,16 @@ class KF8Writer(object):
             self.flows.append(raw)
             for link in elems:
                 link.set('href', 'kindle:flow:%s?mime=text/css'%idx)
+
+        for item in self.oeb.manifest:
+            if item.media_type in OEB_STYLES:
+                sheet = self.data(item)
+                if hasattr(sheet, 'cssRules'):
+                    fix_import_rules(sheet)
+
+        for i, sheet in enumerate(tuple(self.flows)):
+            if hasattr(sheet, 'cssText'):
+                self.flows[i] = force_unicode(sheet.cssText, 'utf-8')
 
     def extract_svg_into_flows(self):
         images = {}
@@ -254,12 +281,12 @@ class KF8Writer(object):
                     if id_ is not None:
                         tag.attrib['id'] = id_
                 if id_ is not None or barename(tag.tag).lower() in aid_able_tags:
-                    aid = aidbase + j
-                    tag.attrib['aid'] = to_base(aid, base=32)
+                    aid = to_base(aidbase + j, base=32)
+                    tag.set('aid', aid)
                     if tag.tag == XHTML('body'):
-                        self.id_map[(item.href, '')] = tag.attrib['aid']
+                        self.id_map[(item.href, '')] = aid
                     if id_ is not None:
-                        self.id_map[(item.href, id_)] = tag.attrib['aid']
+                        self.id_map[(item.href, id_)] = aid
 
                     j += 1
 
@@ -331,7 +358,7 @@ class KF8Writer(object):
         toc = self.oeb.toc
         entries = []
         is_periodical = self.opts.mobi_periodical
-        if toc.count() < 2:
+        if toc.count() < 1:
             self.log.warn('Document has no ToC, MOBI will have no NCX index')
             return
 

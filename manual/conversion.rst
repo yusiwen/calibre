@@ -1,30 +1,30 @@
-.. include:: global.rst
-
 .. _conversion:
 
 Ebook Conversion
 ===================
 
-|app| has a conversion system that is designed to be very easy to use. Normally, you just
-add a book to |app|, click convert and |app| will try hard to generate output that is as
-close as possible to the input. However, |app| accepts a very large number of input formats,
-not all of which are as suitable as others for conversion to ebooks. In the case of
-such input formats, or if you just want greater control over the conversion system,
-|app| has a lot of options to fine tune the conversion process. Note however that |app|'s
-conversion system is not a substitute for a full blown ebook editor. To edit ebooks, I
-would recommend first converting them to EPUB using |app| and then using a dedicated EPUB editor,
-like `Sigil <http://code.google.com/p/sigil/>`_ to get the book into perfect shape. You can then
-use the edited EPUB as input for conversion into other formats in |app|.
+|app| has a conversion system that is designed to be very easy to use.
+Normally, you just add a book to |app|, click convert and |app| will try hard
+to generate output that is as close as possible to the input. However, |app|
+accepts a very large number of input formats, not all of which are as suitable
+as others for conversion to ebooks. In the case of such input formats, or if
+you just want greater control over the conversion system, |app| has a lot of
+options to fine tune the conversion process. Note however that |app|'s
+conversion system is not a substitute for a full blown ebook editor. To edit
+ebooks, I recommend first converting them to EPUB or AZW3 using |app| and
+then using the Edit Book feature to get them into perfect shape. You can then
+use the edited ebook as input for conversion into other formats in |app|.
 
-This document will refer mainly to the conversion settings as found in the conversion dialog,
-pictured below. All these settings are also available via command line interface to conversion,
-documented at :ref:`ebook-convert`. In |app|, you can obtain help on any individual setting by holding your
-mouse over it, a tooltip will appear describing the setting.
+This document will refer mainly to the conversion settings as found in the
+conversion dialog, pictured below. All these settings are also available via
+command line interface to conversion, documented at :ref:`ebook-convert`. In
+|app|, you can obtain help on any individual setting by holding your mouse over
+it, a tooltip will appear describing the setting.
 
 .. image:: images/conv_dialog.png
     :align: center
     :alt: Ebook conversion dialog
-    :scale: 50 
+    :class: half-width-img
 
 .. contents:: Contents
   :depth: 1
@@ -323,7 +323,7 @@ remove all non-breaking-space entities, or may include false positive matches re
     tags, i.e. horizontal rules, and <img> tags are exceptions.  Horizontal rules can optionally be specified with styles, if you 
     choose to add your own style be sure to include the 'width' setting, otherwise the style information will be discarded.  Image 
     tags can used, but |app| does not provide the ability to add the image during conversion, this must be done after the fact using 
-    the 'Tweak Book' feature, or Sigil.
+    the 'Edit Book' feature.
         
         Example image tag (place the image within an 'Images' folder inside the epub after conversion):
             <img style="width:10%" src="../Images/scenebreak.png" />
@@ -533,6 +533,30 @@ Use the following HTML markup to achieve this
     </html>
 
 Set the :guilabel:`Level 1 TOC` setting to ``//h:h2``. Then, for chapter two, |app| will take the title from the value of the ``title`` attribute on the ``<h2>`` tag, since the tag has no text.
+
+Using tag attributes to supply the text for entries in the Table of Contents
+-----------------------------------------------------------------------------
+
+If you have particularly long chapter titles and want shortened versions in the
+Table of Contents, you can use the title attribute to achieve this, for
+example:
+
+.. code-block:: html
+
+    <html>
+        <body>
+            <h2 title="Chapter 1">Chapter 1: Some very long title</h2>
+            <p>chapter 1 text...</p>
+            <h2 title="Chapter 2">Chapter 2: Some other very long title</h2>
+            <p>chapter 2 text...</p>
+        </body>
+    </html>
+
+Set the :guilabel:`Level 1 TOC` setting to ``//h:h2/@title``. Then |app| will
+take the title from the value of the ``title`` attribute on the ``<h2>`` tags,
+instead of using the text inside the tag. Note the trailing ``/@title`` on the
+XPath expression, you can use this form to tell |app| to get the text from any
+attribute you like. 
 
 How options are set/saved for Conversion
 -------------------------------------------
@@ -814,7 +838,7 @@ template::
 This will display the title at the left and the author at the right, in a font
 size smaller than the main text.
 
-Finally, you can also use the current section in templates, as shown below::
+You can also use the current section in templates, as shown below::
 
     <p style="text-align:right">_SECTION_</p>
 
@@ -823,6 +847,12 @@ names are taken from the metadata Table of Contents in the document (the PDF
 Outline). If the document has no table of contents then it will be replaced by
 empty text. If a single PDF page has multiple sections, the first section on
 the page will be used.
+
+You can even use javascript inside the header and footer templates, for
+example, the following template will cause page numbers to start at 4 instead
+of 1::
+
+    <p id="pagenum" style="text-align:center;"></p><script>document.getElementById("pagenum").innerHTML = "" + (_PAGENUM_ + 3)</script>
 
 .. note:: When adding headers and footers make sure you set the page top and
     bottom margins to large enough values, under the Page Setup section of the

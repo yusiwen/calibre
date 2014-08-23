@@ -116,12 +116,12 @@ def embed_all_fonts(container, stats, report):
 
     if not rules:
         report(_('No embeddable fonts found'))
-        return
+        return False
 
     # Write out CSS
     rules = [';\n\t'.join('%s: %s' % (
-        k, '"%s"' % v if k == 'font-family' else v) for k, v in rule.iteritems() if (k in props and props[k] != v and v != '400') or k == 'src')
-        for rule in rules]
+        k, '"%s"' % v if k == 'font-family' else v) for k, v in rulel.iteritems() if (k in props and props[k] != v and v != '400') or k == 'src')
+        for rulel in rules]
     css = '\n\n'.join(['@font-face {\n\t%s\n}' % r for r in rules])
     item = container.generate_item('fonts.css', id_prefix='font_embed')
     name = container.href_to_name(item.get('href'), container.opf_name)
@@ -135,6 +135,7 @@ def embed_all_fonts(container, stats, report):
         href = container.name_to_href(name, spine_name)
         etree.SubElement(head, XHTML('link'), rel='stylesheet', type='text/css', href=href).tail = '\n'
         container.dirty(spine_name)
+    return True
 
 
 if __name__ == '__main__':

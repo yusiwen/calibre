@@ -54,7 +54,8 @@ def read_doc_props(raw, mi):
     desc = XPath('//dc:description')(root)
     if desc:
         raw = etree.tostring(desc[0], method='text', encoding=unicode)
-        mi.comments = raw
+        raw = raw.replace('_x000d_', '')  # Word 2007 mangles newlines in the summary
+        mi.comments = raw.strip()
 
     langs = []
     for lang in XPath('//dc:language')(root):
@@ -70,6 +71,14 @@ def read_app_props(raw, mi):
     company = root.xpath('//*[local-name()="Company"]')
     if company and company[0].text and company[0].text.strip():
         mi.publisher = company[0].text.strip()
+
+def read_default_style_language(raw, mi):
+    root = fromstring(raw)
+    for lang in XPath('/w:styles/w:docDefaults/w:rPrDefault/w:rPr/w:lang/@w:val')(root):
+        lang = canonicalize_lang(lang)
+        if lang:
+            mi.languages = [lang]
+            break
 # }}}
 
 class DOCX(object):
@@ -206,6 +215,13 @@ class DOCX(object):
                 pass
             else:
                 read_doc_props(raw, mi)
+        if mi.is_null('language'):
+            try:
+                raw = self.read('word/styles.xml')
+            except KeyError:
+                pass
+            else:
+                read_default_style_language(raw, mi)
 
         name = self.relationships.get(APPPROPS, None)
         if name is None:

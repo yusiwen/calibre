@@ -6,14 +6,14 @@ __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import os, socket, time
+import os, socket, time, textwrap
 from binascii import unhexlify
 from functools import partial
 from threading import Thread
 from itertools import repeat
 from collections import defaultdict
 
-from PyQt4.Qt import (
+from PyQt5.Qt import (
     Qt, QDialog, QGridLayout, QIcon, QListWidget, QDialogButtonBox,
     QListWidgetItem, QLabel, QLineEdit, QPushButton)
 
@@ -23,7 +23,7 @@ from calibre.utils.filenames import ascii_filename
 from calibre.customize.ui import available_input_formats, available_output_formats
 from calibre.ebooks.metadata import authors_to_string
 from calibre.constants import preferred_encoding
-from calibre.gui2 import config, Dispatcher, warning_dialog, error_dialog
+from calibre.gui2 import config, Dispatcher, warning_dialog, error_dialog, gprefs
 from calibre.library.save_to_disk import get_components
 from calibre.utils.config import tweaks, prefs
 from calibre.utils.icu import sort_key
@@ -270,7 +270,7 @@ class SelectRecipients(QDialog):  # {{{
         ans = []
         for i in self.items:
             if i.checkState() == Qt.Checked:
-                to = unicode(i.data(Qt.UserRole).toString())
+                to = unicode(i.data(Qt.UserRole) or '')
                 fmts = tuple(x.strip().upper() for x in (opts.accounts[to][0] or '').split(','))
                 subject = opts.subjects.get(to, '')
                 ans.append((to, fmts, subject))
@@ -284,6 +284,9 @@ def select_recipients(parent=None):
 # }}}
 
 class EmailMixin(object):  # {{{
+
+    def __init__(self, *args, **kwargs):
+        pass
 
     def send_multiple_by_mail(self, recipients, delete_from_library):
         ids = set(self.library_view.model().id(r) for r in self.library_view.selectionModel().selectedRows())
@@ -382,6 +385,9 @@ class EmailMixin(object):  # {{{
                         '\n\n' + t + '\n\t' + _('by') + ' ' + a + '\n\n' +
                         _('in the %s format.') %
                         os.path.splitext(f)[1][1:].upper())
+                if mi.comments and gprefs['add_comments_to_email']:
+                    from calibre.utils.html2text import html2text
+                    texts[-1] += '\n\n' + _('About this book:') + '\n\n' + textwrap.fill(html2text(mi.comments))
                 prefix = ascii_filename(t+' - '+a)
                 if not isinstance(prefix, unicode):
                     prefix = prefix.decode(preferred_encoding, 'replace')
@@ -476,7 +482,7 @@ class EmailMixin(object):  # {{{
 # }}}
 
 if __name__ == '__main__':
-    from PyQt4.Qt import QApplication
+    from PyQt5.Qt import QApplication
     app = QApplication([])  # noqa
     print (select_recipients())
 

@@ -7,8 +7,8 @@ __docformat__ = 'restructuredtext en'
 
 import textwrap
 
-from PyQt4.Qt import (QWidget, pyqtSignal, QCheckBox, QAbstractSpinBox,
-    QLineEdit, QComboBox, QVariant, Qt, QIcon, QDialog, QVBoxLayout,
+from PyQt5.Qt import (QWidget, pyqtSignal, QCheckBox, QAbstractSpinBox,
+    QLineEdit, QComboBox, Qt, QIcon, QDialog, QVBoxLayout,
     QDialogButtonBox)
 
 from calibre.customize.ui import preferences_plugins
@@ -142,7 +142,7 @@ class Setting(object):
                 for x in choices:
                     if isinstance(x, basestring):
                         x = (x, x)
-                    self.gui_obj.addItem(x[0], QVariant(x[1]))
+                    self.gui_obj.addItem(x[0], (x[1]))
         self.set_gui_val(self.get_config_val(default=False))
         self.gui_obj.blockSignals(False)
         self.initial_value = self.get_gui_val()
@@ -179,7 +179,7 @@ class Setting(object):
             if isinstance(self.gui_obj, EditWithComplete):
                 self.gui_obj.setText(val)
             else:
-                idx = self.gui_obj.findData(QVariant(val), role=Qt.UserRole,
+                idx = self.gui_obj.findData((val), role=Qt.UserRole,
                         flags=self.CHOICES_SEARCH_FLAGS)
                 if idx == -1:
                     idx = 0
@@ -200,7 +200,7 @@ class Setting(object):
             else:
                 idx = self.gui_obj.currentIndex()
                 if idx < 0: idx = 0
-                val = unicode(self.gui_obj.itemData(idx).toString())
+                val = unicode(self.gui_obj.itemData(idx) or '')
         return val
 
 class CommaSeparatedList(Setting):
@@ -385,7 +385,7 @@ def test_widget(category, name, gui=None):
     show_config_widget(category, name, gui=gui, show_restart_msg=True)
 
 def test_all():
-    from PyQt4.Qt import QApplication
+    from PyQt5.Qt import QApplication
     app = QApplication([])
     app
     gui = init_gui()

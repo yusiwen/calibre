@@ -7,8 +7,8 @@ __docformat__ = 'restructuredtext en'
 
 import sys
 
-from PyQt4.Qt import (Qt, QApplication, QStyle, QIcon,  QDoubleSpinBox,
-        QVariant, QSpinBox, QStyledItemDelegate, QComboBox, QTextDocument,
+from PyQt5.Qt import (Qt, QApplication, QStyle, QIcon,  QDoubleSpinBox, QStyleOptionViewItem,
+        QSpinBox, QStyledItemDelegate, QComboBox, QTextDocument, QSize,
         QAbstractTextDocumentLayout, QFont, QFontInfo, QDate, QDateTimeEdit, QDateTime)
 
 from calibre.gui2 import UNDEFINED_QDATETIME, error_dialog, rating_font
@@ -79,7 +79,7 @@ class RatingDelegate(QStyledItemDelegate):  # {{{
         return sb
 
     def displayText(self, value, locale):
-        r = value.toInt()[0]
+        r = int(value)
         if r < 0 or r > 5:
             r = 0
         return u'\u2605'*r
@@ -107,7 +107,7 @@ class DateDelegate(QStyledItemDelegate):  # {{{
             self.format = default_format
 
     def displayText(self, val, locale):
-        d = qt_to_dt(val.toDateTime())
+        d = qt_to_dt(val)
         if is_date_undefined(d):
             return ''
         return format_date(d, self.format)
@@ -126,7 +126,7 @@ class PubDateDelegate(QStyledItemDelegate):  # {{{
             self.format = 'MMM yyyy'
 
     def displayText(self, val, locale):
-        d = qt_to_dt(val.toDateTime())
+        d = qt_to_dt(val)
         if is_date_undefined(d):
             return ''
         return format_date(d, self.format)
@@ -135,9 +135,11 @@ class PubDateDelegate(QStyledItemDelegate):  # {{{
         return DateTimeEdit(parent, self.format)
 
     def setEditorData(self, editor, index):
-        val = index.data(Qt.EditRole).toDate()
+        val = index.data(Qt.EditRole)
         if is_date_undefined(val):
             val = QDate(2000, 1, 1)
+        if isinstance(val, QDateTime):
+            val = val.date()
         editor.setDate(val)
 
 # }}}
@@ -166,14 +168,14 @@ class TextDelegate(QStyledItemDelegate):  # {{{
         return editor
 
     def setEditorData(self, editor, index):
-        ct = unicode(index.data(Qt.DisplayRole).toString())
+        ct = unicode(index.data(Qt.DisplayRole) or '')
         editor.setText(ct)
         editor.selectAll()
 
     def setModelData(self, editor, model, index):
         if isinstance(editor, EditWithComplete):
             val = editor.lineEdit().text()
-            model.setData(index, QVariant(val), Qt.EditRole)
+            model.setData(index, (val), Qt.EditRole)
         else:
             QStyledItemDelegate.setModelData(self, editor, model, index)
 
@@ -208,14 +210,14 @@ class CompleteDelegate(QStyledItemDelegate):  # {{{
         return editor
 
     def setEditorData(self, editor, index):
-        ct = unicode(index.data(Qt.DisplayRole).toString())
+        ct = unicode(index.data(Qt.DisplayRole) or '')
         editor.setText(ct)
         editor.selectAll()
 
     def setModelData(self, editor, model, index):
         if isinstance(editor, EditWithComplete):
             val = editor.lineEdit().text()
-            model.setData(index, QVariant(val), Qt.EditRole)
+            model.setData(index, (val), Qt.EditRole)
         else:
             QStyledItemDelegate.setModelData(self, editor, model, index)
 # }}}
@@ -228,12 +230,12 @@ class LanguagesDelegate(QStyledItemDelegate):  # {{{
         return editor
 
     def setEditorData(self, editor, index):
-        ct = unicode(index.data(Qt.DisplayRole).toString())
+        ct = unicode(index.data(Qt.DisplayRole) or '')
         editor.show_initial_value(ct)
 
     def setModelData(self, editor, model, index):
         val = ','.join(editor.lang_codes)
-        model.setData(index, QVariant(val), Qt.EditRole)
+        model.setData(index, (val), Qt.EditRole)
 # }}}
 
 class CcDateDelegate(QStyledItemDelegate):  # {{{
@@ -250,7 +252,7 @@ class CcDateDelegate(QStyledItemDelegate):  # {{{
             self.format = format
 
     def displayText(self, val, locale):
-        d = qt_to_dt(val.toDateTime())
+        d = qt_to_dt(val)
         if is_date_undefined(d):
             return ''
         return format_date(d, self.format)
@@ -271,7 +273,7 @@ class CcDateDelegate(QStyledItemDelegate):  # {{{
         val = editor.dateTime()
         if is_date_undefined(val):
             val = None
-        model.setData(index, QVariant(val), Qt.EditRole)
+        model.setData(index, (val), Qt.EditRole)
 
 # }}}
 
@@ -291,13 +293,13 @@ class CcTextDelegate(QStyledItemDelegate):  # {{{
         return editor
 
     def setEditorData(self, editor, index):
-        ct = unicode(index.data(Qt.DisplayRole).toString())
+        ct = unicode(index.data(Qt.DisplayRole) or '')
         editor.setText(ct)
         editor.selectAll()
 
     def setModelData(self, editor, model, index):
         val = editor.text()
-        model.setData(index, QVariant(val), Qt.EditRole)
+        model.setData(index, (val), Qt.EditRole)
 # }}}
 
 class CcNumberDelegate(QStyledItemDelegate):  # {{{
@@ -324,7 +326,7 @@ class CcNumberDelegate(QStyledItemDelegate):  # {{{
         val = editor.value()
         if val == editor.minimum():
             val = None
-        model.setData(index, QVariant(val), Qt.EditRole)
+        model.setData(index, (val), Qt.EditRole)
 
     def setEditorData(self, editor, index):
         m = index.model()
@@ -353,7 +355,7 @@ class CcEnumDelegate(QStyledItemDelegate):  # {{{
         val = unicode(editor.currentText())
         if not val:
             val = None
-        model.setData(index, QVariant(val), Qt.EditRole)
+        model.setData(index, (val), Qt.EditRole)
 
     def setEditorData(self, editor, index):
         m = index.model()
@@ -401,11 +403,11 @@ class CcCommentsDelegate(QStyledItemDelegate):  # {{{
         editor = CommentsDialog(parent, text, column_name=m.custom_columns[col]['name'])
         d = editor.exec_()
         if d:
-            m.setData(index, QVariant(editor.textbox.html), Qt.EditRole)
+            m.setData(index, (editor.textbox.html), Qt.EditRole)
         return None
 
     def setModelData(self, editor, model, index):
-        model.setData(index, QVariant(editor.textbox.html), Qt.EditRole)
+        model.setData(index, (editor.textbox.html), Qt.EditRole)
 # }}}
 
 class DelegateCB(QComboBox):  # {{{
@@ -439,7 +441,7 @@ class CcBoolDelegate(QStyledItemDelegate):  # {{{
 
     def setModelData(self, editor, model, index):
         val = {0:True, 1:False, 2:None}[editor.currentIndex()]
-        model.setData(index, QVariant(val), Qt.EditRole)
+        model.setData(index, (val), Qt.EditRole)
 
     def setEditorData(self, editor, index):
         m = index.model()
@@ -450,6 +452,21 @@ class CcBoolDelegate(QStyledItemDelegate):  # {{{
             val = 2 if val is None else 1 if not val else 0
         editor.setCurrentIndex(val)
 
+    def updateEditorGeometry(self, editor, option, index):
+        if editor is None:
+            return
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        opt.showDecorationSelected = True
+        opt.decorationSize = QSize(0, 0)  # We want the editor to cover the decoration
+        style = QApplication.style()
+        geom = style.subElementRect(style.SE_ItemViewItemText, opt, None)
+
+        if editor.layoutDirection() == Qt.RightToLeft:
+            delta = editor.sizeHint().width() - geom.width()
+            if delta > 0:
+                geom.adjust(-delta, 0, 0, 0)
+        editor.setGeometry(geom)
 # }}}
 
 class CcTemplateDelegate(QStyledItemDelegate):  # {{{
@@ -469,7 +486,7 @@ class CcTemplateDelegate(QStyledItemDelegate):  # {{{
         editor.textbox.setTabStopWidth(20)
         d = editor.exec_()
         if d:
-            m.setData(index, QVariant(editor.rule[1]), Qt.EditRole)
+            m.setData(index, (editor.rule[1]), Qt.EditRole)
         return None
 
     def setModelData(self, editor, model, index):
@@ -480,7 +497,7 @@ class CcTemplateDelegate(QStyledItemDelegate):  # {{{
             error_dialog(self.parent(), _('Invalid template'),
                     '<p>'+_('The template %s is invalid:')%val +
                     '<br>'+str(err), show=True)
-        model.setData(index, QVariant(val), Qt.EditRole)
+        model.setData(index, (val), Qt.EditRole)
 
     def setEditorData(self, editor, index):
         m = index.model()

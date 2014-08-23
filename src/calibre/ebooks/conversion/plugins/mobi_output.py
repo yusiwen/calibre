@@ -56,7 +56,11 @@ class MOBIOutput(OutputFormatPlugin):
             help=_('Disable compression of the file contents.')
         ),
         OptionRecommendation(name='personal_doc', recommended_value='[PDOC]',
-            help=_('Tag marking book to be filed with Personal Docs')
+            help=_('Tag for MOBI files to be marked as personal documents.'
+                   ' This option has no effect on the conversion. It is used'
+                   ' only when sending MOBI files to a device. If the file'
+                   ' being sent has the specified tag, it will be marked as'
+                   ' a personal document when sent to the Kindle.')
         ),
         OptionRecommendation(name='mobi_ignore_margins',
             recommended_value=False,

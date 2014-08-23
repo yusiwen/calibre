@@ -6,21 +6,22 @@ __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import re
+import re, time
 from functools import partial
 
 
-from PyQt4.Qt import QComboBox, Qt, QLineEdit, QStringList, pyqtSlot, QDialog, \
+from PyQt5.Qt import QComboBox, Qt, QLineEdit, pyqtSlot, QDialog, \
                      pyqtSignal, QCompleter, QAction, QKeySequence, QTimer, \
-                     QString, QIcon, QMenu
+                     QIcon, QMenu
 
-from calibre.gui2 import config, error_dialog, question_dialog
+from calibre.gui2 import config, error_dialog, question_dialog, gprefs
 from calibre.gui2.dialogs.confirm_delete import confirm
 from calibre.gui2.dialogs.saved_search_editor import SavedSearchEditor
 from calibre.gui2.dialogs.search import SearchDialog
 
 class SearchLineEdit(QLineEdit):  # {{{
     key_pressed = pyqtSignal(object)
+    select_on_mouse_press = None
 
     def keyPressEvent(self, event):
         self.key_pressed.emit(event)
@@ -38,6 +39,16 @@ class SearchLineEdit(QLineEdit):  # {{{
     def paste(self, *args):
         self.parent().normalize_state()
         return QLineEdit.paste(self)
+
+    def focusInEvent(self, ev):
+        self.select_on_mouse_press = time.time()
+        return QLineEdit.focusInEvent(self, ev)
+
+    def mousePressEvent(self, ev):
+        QLineEdit.mousePressEvent(self, ev)
+        if self.select_on_mouse_press is not None and abs(time.time() - self.select_on_mouse_press) < 0.2:
+            self.selectAll()
+        self.select_on_mouse_press = None
 # }}}
 
 class SearchBox2(QComboBox):  # {{{
@@ -73,11 +84,11 @@ class SearchBox2(QComboBox):  # {{{
 
         c = self.line_edit.completer()
         c.setCompletionMode(c.PopupCompletion)
-        c.highlighted[QString].connect(self.completer_used)
-        c.activated[QString].connect(self.history_selected)
+        c.highlighted[str].connect(self.completer_used)
 
         self.line_edit.key_pressed.connect(self.key_pressed, type=Qt.DirectConnection)
-        self.activated.connect(self.history_selected)
+        # QueuedConnection as workaround for https://bugreports.qt-project.org/browse/QTBUG-40807
+        self.activated[str].connect(self.history_selected, type=Qt.QueuedConnection)
         self.setEditable(True)
         self.as_you_type = True
         self.timer = QTimer()
@@ -97,12 +108,8 @@ class SearchBox2(QComboBox):  # {{{
         for item in config[opt_name]:
             if item not in items:
                 items.append(item)
-        self.addItems(QStringList(items))
-        try:
-            self.line_edit.setPlaceholderText(help_text)
-        except:
-            # Using Qt < 4.7
-            pass
+        self.addItems(items)
+        self.line_edit.setPlaceholderText(help_text)
         self.colorize = colorize
         self.clear()
 
@@ -219,7 +226,7 @@ class SearchBox2(QComboBox):  # {{{
 
     def set_search_string(self, txt, store_in_history=False, emit_changed=True):
         if not store_in_history:
-            self.activated.disconnect()
+            self.activated[str].disconnect()
         try:
             self.setFocus(Qt.OtherFocusReason)
             if not txt:
@@ -238,7 +245,8 @@ class SearchBox2(QComboBox):  # {{{
             self.focus_to_library.emit()
         finally:
             if not store_in_history:
-                self.activated.connect(self.history_selected)
+                # QueuedConnection as workaround for https://bugreports.qt-project.org/browse/QTBUG-40807
+                self.activated[str].connect(self.history_selected, type=Qt.QueuedConnection)
 
     def search_as_you_type(self, enabled):
         self.as_you_type = enabled
@@ -387,7 +395,10 @@ class SavedSearchBox(QComboBox):  # {{{
 
 class SearchBoxMixin(object):  # {{{
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def init_search_box_mixin(self):
         self.search.initialize('main_search_history', colorize=True,
                 help_text=_('Search (For Advanced Search click the button to the left)'))
         self.search.cleared.connect(self.search_box_cleared)
@@ -402,7 +413,7 @@ class SearchBoxMixin(object):  # {{{
         self.search.setMaximumWidth(self.width()-150)
         self.action_focus_search = QAction(self)
         shortcuts = list(
-                map(lambda x:unicode(x.toString()),
+                map(lambda x:unicode(x.toString(QKeySequence.PortableText)),
                 QKeySequence.keyBindings(QKeySequence.Find)))
         shortcuts += ['/', 'Alt+S']
         self.keyboard.register_shortcut('start search', _('Start search'),
@@ -435,6 +446,7 @@ class SearchBoxMixin(object):  # {{{
             self.highlight_only_button.setIcon(QIcon(I('highlight_only_on.png')))
         else:
             self.highlight_only_button.setIcon(QIcon(I('highlight_only_off.png')))
+        self.highlight_only_button.setVisible(gprefs['show_highlight_toggle_button'])
         self.library_view.model().set_highlight_only(config['highlight_search_matches'])
 
     def focus_search_box(self, *args):
@@ -466,7 +478,10 @@ class SearchBoxMixin(object):  # {{{
 
 class SavedSearchBoxMixin(object):  # {{{
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def init_saved_seach_box_mixin(self):
         self.saved_search.changed.connect(self.saved_searches_changed)
         self.clear_button.clicked.connect(self.saved_search.clear)
         self.save_search_button.clicked.connect(
@@ -491,13 +506,9 @@ class SavedSearchBoxMixin(object):  # {{{
                             _('Create saved search'),
                             self.saved_search.save_search_button_clicked)
         self.save_search_button.menu().addAction(
-                             QIcon(I('trash.png')),
-                             _('Delete saved search'),
-                            self.saved_search.delete_current_search)
+            QIcon(I('trash.png')), _('Delete saved search'), self.saved_search.delete_current_search)
         self.save_search_button.menu().addAction(
-                             QIcon(I('search.png')),
-                            _('Manage saved searches'),
-                            partial(self.do_saved_search_edit, None))
+            QIcon(I('search.png')), _('Manage saved searches'), partial(self.do_saved_search_edit, None))
 
     def saved_searches_changed(self, set_restriction=None, recount=True):
         self.build_search_restriction_list()

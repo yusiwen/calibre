@@ -34,12 +34,28 @@ License: LGPL-2.1
  The full text of the LGPL is distributed as in
  /usr/share/common-licenses/LGPL-2.1 on Debian systems.
 
+Files: srx/regex/*
+Copyright: Matthew Barnett
+License: Python Software Foundation License
+
+Files: src/hunspell/*
+Copyright: Various
+License: GPL-2+
+
+Files: src/calibre/utils/diff/_patiencediff_c.c
+Copyright: Canonical
+License: GPL-2+
+
 Files: src/calibre/ebooks/hyphenate.py
 Copyright: Copyright (C) 1990, 2004, 2005 Gerard D.C. Kuiken.
 License: other
  Copying and distribution of this file, with or without modification,
  are permitted in any medium without royalty provided the copyright
  notice and this notice are preserved.
+
+Files: src/tinycss/*
+Copyright: Simon Sapin
+License: BSD
 
 Files: src/calibre/ebooks/readability/*
 Copyright: Unknown

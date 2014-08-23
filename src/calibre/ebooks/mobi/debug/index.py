@@ -7,6 +7,8 @@ __license__   = 'GPL v3'
 __copyright__ = '2012, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
+import struct
+
 from collections import OrderedDict, namedtuple
 
 from calibre.ebooks.mobi.reader.headers import NULL_INDEX
@@ -22,6 +24,37 @@ Elem = namedtuple('Chunk',
     'length')
 
 GuideRef = namedtuple('GuideRef', 'type title pos_fid')
+
+INDEX_HEADER_FIELDS = INDEX_HEADER_FIELDS + ('indices', 'tagx_block_size', 'tagx_block')
+FIELD_NAMES = {'len':'Header length', 'type':'Unknown', 'gen':'Index Type (0 - normal, 2 - inflection)',
+               'start':'IDXT Offset', 'count':'Number of entries in this record', 'code': 'character encoding', 'lng':'Unknown',
+               'total':'Total number of actual Index Entries in all records', 'ordt': 'ORDT Offset', 'ligt':'LIGT Offset', 'nligt':'Number of LIGT',
+               'ncncx':'Number of CNCX records', 'indices':'Geometry of index records'}
+
+def read_variable_len_data(data, header):
+    offset = header['tagx']
+    indices = []
+    idxt_offset = header['start']
+    idxt_size = 4 + header['count'] * 2
+    if offset > 0:
+        tagx_block_size = header['tagx_block_size'] = struct.unpack_from(b'>I', data, offset + 4)[0]
+        header['tagx_block'] = data[offset:offset+tagx_block_size]
+        offset = idxt_offset + 4
+        for i in xrange(header['count']):
+            p = struct.unpack_from(b'>H', data, offset)[0]
+            offset += 2
+            strlen = bytearray(data[p])[0]
+            text = data[p+1:p+1+strlen]
+            p += 1 + strlen
+            num = struct.unpack_from(b'>H', data, p)[0]
+            indices.append((text, num))
+    else:
+        header['tagx_block'] = b''
+        header['tagx_block_size'] = 0
+    trailing_bytes = data[idxt_offset+idxt_size:]
+    if trailing_bytes.rstrip(b'\0'):
+        raise ValueError('Traling bytes after last IDXT entry: %r' % trailing_bytes.rstrip(b'\0'))
+    header['indices'] = indices
 
 def read_index(sections, idx, codec):
     table, cncx = OrderedDict(), CNCX([], codec)
@@ -39,27 +72,37 @@ def read_index(sections, idx, codec):
     tag_section_start = indx_header['tagx']
     control_byte_count, tags = parse_tagx_section(data[tag_section_start:])
 
+    read_variable_len_data(data, indx_header)
+    index_headers = []
+
     for i in xrange(idx + 1, idx + 1 + indx_count):
         # Index record
         data = sections[i].raw
-        parse_index_record(table, data, control_byte_count, tags, codec,
-                indx_header['ordt_map'], strict=True)
-    return table, cncx, indx_header
+        index_headers.append(parse_index_record(table, data, control_byte_count, tags, codec,
+                indx_header['ordt_map'], strict=True))
+        read_variable_len_data(data, index_headers[-1])
+    return table, cncx, indx_header, index_headers
 
 class Index(object):
 
     def __init__(self, idx, records, codec):
         self.table = self.cncx = self.header = self.records = None
+        self.index_headers = []
         if idx != NULL_INDEX:
-            self.table, self.cncx, self.header = read_index(records, idx, codec)
+            self.table, self.cncx, self.header, self.index_headers = read_index(records, idx, codec)
 
     def render(self):
         ans = ['*'*10 + ' Index Header ' + '*'*10]
         a = ans.append
         if self.header is not None:
             for field in INDEX_HEADER_FIELDS:
-                a('%-12s: %r'%(field, self.header[field]))
+                a('%-12s: %r'%(FIELD_NAMES.get(field, field), self.header[field]))
         ans.extend(['', ''])
+        ans += ['*'*10 + ' Index Record Headers (%d records) ' % len(self.index_headers) + '*'*10]
+        for i, header in enumerate(self.index_headers):
+            ans += ['*'*10 + ' Index Record %d ' % i + '*'*10]
+            for field in INDEX_HEADER_FIELDS:
+                a('%-12s: %r'%(FIELD_NAMES.get(field, field), header[field]))
 
         if self.cncx:
             a('*'*10 + ' CNCX ' + '*'*10)
@@ -98,11 +141,11 @@ class SKELIndex(Index):
                     raise ValueError('SKEL Index has unknown tags: %s'%
                             (set(tag_map.iterkeys())-{1,6}))
                 self.records.append(File(
-                    i, # file_number
-                    text, # name
-                    tag_map[1][0], # divtbl_count
-                    tag_map[6][0], # start_pos
-                    tag_map[6][1]) # length
+                    i,  # file_number
+                    text,  # name
+                    tag_map[1][0],  # divtbl_count
+                    tag_map[6][0],  # start_pos
+                    tag_map[6][1])  # length
                 )
 
 class SECTIndex(Index):
@@ -112,7 +155,7 @@ class SECTIndex(Index):
         self.records = []
 
         if self.table is not None:
-             for i, text in enumerate(self.table.iterkeys()):
+            for i, text in enumerate(self.table.iterkeys()):
                 tag_map = self.table[text]
                 if set(tag_map.iterkeys()) != {2, 3, 4, 6}:
                     raise ValueError('Chunk Index has unknown tags: %s'%
@@ -120,11 +163,11 @@ class SECTIndex(Index):
 
                 toc_text = self.cncx[tag_map[2][0]]
                 self.records.append(Elem(
-                    int(text), # insert_pos
-                    toc_text, # toc_text
-                    tag_map[3][0], # file_number
-                    tag_map[4][0], # sequence_number
-                    tag_map[6][0], # start_pos
+                    int(text),  # insert_pos
+                    toc_text,  # toc_text
+                    tag_map[3][0],  # file_number
+                    tag_map[4][0],  # sequence_number
+                    tag_map[6][0],  # start_pos
                     tag_map[6][1]  # length
                     )
                 )
@@ -136,7 +179,7 @@ class GuideIndex(Index):
         self.records = []
 
         if self.table is not None:
-             for i, text in enumerate(self.table.iterkeys()):
+            for i, text in enumerate(self.table.iterkeys()):
                 tag_map = self.table[text]
                 if set(tag_map.iterkeys()) not in ({1, 6}, {1, 2, 3}):
                     raise ValueError('Guide Index has unknown tags: %s'%
@@ -194,5 +237,3 @@ class NCXIndex(Index):
                         last_child=refindx(e, 'childn'), title=e['text'],
                         pos_fid=e['pos_fid'], kind=e['kind'])
                 self.records.append(entry)
-
-

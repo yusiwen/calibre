@@ -24,7 +24,26 @@ from calibre import prints, guess_type
 from calibre.utils.cleantext import clean_ascii_chars, clean_xml_chars
 from calibre.utils.config import tweaks
 
+pretty_print_opf = False
+
+class PrettyPrint(object):
+
+    def __enter__(self):
+        global pretty_print_opf
+        pretty_print_opf = True
+
+    def __exit__(self, *args):
+        global pretty_print_opf
+        pretty_print_opf = False
+pretty_print = PrettyPrint()
+
+def _pretty_print(root):
+    from calibre.ebooks.oeb.polish.pretty import pretty_opf, pretty_xml_tree
+    pretty_opf(root)
+    pretty_xml_tree(root)
+
 class Resource(object):  # {{{
+
     '''
     Represents a resource (usually a file on the filesystem or a URL pointing
     to the web. Such resources are commonly referred to in OPF files.
@@ -604,7 +623,7 @@ class OPF(object):  # {{{
                 import traceback
                 traceback.print_exc()
                 continue
-            self._user_metadata_ = temp.get_all_user_metadata(True)
+        self._user_metadata_ = temp.get_all_user_metadata(True)
 
     def to_book_metadata(self):
         ans = MetaInformation(self)
@@ -1066,6 +1085,13 @@ class OPF(object):  # {{{
 
         return property(fget=fget, fset=fset)
 
+    @property
+    def raw_languages(self):
+        for match in self.languages_path(self.metadata):
+            t = self.get_text(match)
+            if t and t.strip():
+                yield t.strip()
+
     @dynamic_property
     def book_producer(self):
 
@@ -1086,7 +1112,7 @@ class OPF(object):  # {{{
             yield item
 
     @property
-    def unique_identifier(self):
+    def raw_unique_identifier(self):
         uuid_elem = None
         for attr in self.root.attrib:
             if attr.endswith('unique-identifier'):
@@ -1098,7 +1124,13 @@ class OPF(object):  # {{{
                 for m in matches:
                     raw = m.text
                     if raw:
-                        return raw.rpartition(':')[-1]
+                        return raw
+
+    @property
+    def unique_identifier(self):
+        raw = self.raw_unique_identifier
+        if raw:
+            return raw.rpartition(':')[-1]
 
     @property
     def page_progression_direction(self):
@@ -1210,6 +1242,8 @@ class OPF(object):  # {{{
                 a['content'] = c
 
         self.write_user_metadata()
+        if pretty_print_opf:
+            _pretty_print(self.root)
         raw = etree.tostring(self.root, encoding=encoding, pretty_print=True)
         if not raw.lstrip().startswith('<?xml '):
             raw = '<?xml version="1.0"  encoding="%s"?>\n'%encoding.upper()+raw
@@ -1473,7 +1507,7 @@ def metadata_to_opf(mi, as_string=True, default_lang=None):
 
     root = etree.fromstring(textwrap.dedent(
     '''
-    <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="uuid_id">
+    <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="uuid_id" version="2.0">
         <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
             <dc:identifier opf:scheme="%(a)s" id="%(a)s_id">%(id)s</dc:identifier>
             <dc:identifier opf:scheme="uuid" id="uuid_id">%(uuid)s</dc:identifier>
@@ -1562,6 +1596,9 @@ def metadata_to_opf(mi, as_string=True, default_lang=None):
                 attrib={'type':'cover', 'title':_('Cover'), 'href':mi.cover})
         r.tail = '\n' +(' '*4)
         guide.append(r)
+    if pretty_print_opf:
+        _pretty_print(root)
+
     return etree.tostring(root, pretty_print=True, encoding='utf-8',
             xml_declaration=True) if as_string else root
 
@@ -1700,6 +1737,6 @@ def test_user_metadata():
     print opf.render()
 
 if __name__ == '__main__':
-    #test_user_metadata()
+    # test_user_metadata()
     test_m2o()
     test()

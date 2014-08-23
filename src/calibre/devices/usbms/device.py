@@ -15,6 +15,7 @@ import os, subprocess, time, re, sys, glob
 from itertools import repeat
 
 from calibre import prints, as_unicode
+from calibre.constants import DEBUG
 from calibre.devices.interface import DevicePlugin
 from calibre.devices.errors import DeviceError
 from calibre.devices.usbms.deviceconfig import DeviceConfig
@@ -89,7 +90,6 @@ class Device(DeviceConfig, DevicePlugin):
     STORAGE_CARD_VOLUME_LABEL = ''
     STORAGE_CARD2_VOLUME_LABEL = None
 
-
     EBOOK_DIR_MAIN = ''
     EBOOK_DIR_CARD_A = ''
     EBOOK_DIR_CARD_B = ''
@@ -110,7 +110,7 @@ class Device(DeviceConfig, DevicePlugin):
         self._main_prefix = self._card_a_prefix = self._card_b_prefix = None
         try:
             self.detected_device = USBDevice(detected_device)
-        except: # On windows detected_device is None
+        except:  # On windows detected_device is None
             self.detected_device = None
         self.set_progress_reporter(report_progress)
 
@@ -138,7 +138,8 @@ class Device(DeviceConfig, DevicePlugin):
                 time.sleep(3)
                 sectors_per_cluster, bytes_per_sector, free_clusters, total_clusters = \
                     win32file.GetDiskFreeSpace(prefix)
-            else: raise
+            else:
+                raise
         mult = sectors_per_cluster * bytes_per_sector
         return total_clusters * mult, free_clusters * mult
 
@@ -254,7 +255,6 @@ class Device(DeviceConfig, DevicePlugin):
                 pass
             return False
 
-
         for drive, pnp_id in win_pnp_drives().items():
             if self.windows_match_device(pnp_id, 'WINDOWS_CARD_A_MEM') and \
                     not drives.get('carda', False):
@@ -315,11 +315,10 @@ class Device(DeviceConfig, DevicePlugin):
             try:
                 return subprocess.Popen(cmd,
                                     stdout=subprocess.PIPE).communicate()[0]
-            except IOError: # Probably an interrupted system call
+            except IOError:  # Probably an interrupted system call
                 if i == 2:
                     raise
             time.sleep(2)
-
 
     def osx_sort_names(self, names):
         return names
@@ -373,7 +372,7 @@ class Device(DeviceConfig, DevicePlugin):
             try:
                 return subprocess.Popen('mount',
                                     stdout=subprocess.PIPE).communicate()[0]
-            except IOError: # Probably an interrupted system call
+            except IOError:  # Probably an interrupted system call
                 if i == 2:
                     raise
             time.sleep(2)
@@ -450,9 +449,11 @@ class Device(DeviceConfig, DevicePlugin):
         for i in range(3):
             try:
                 drives = self._osx_bsd_names()
-                if len(drives) > 1: return drives
+                if len(drives) > 1:
+                    return drives
             except:
-                if i == 2: raise
+                if i == 2:
+                    raise
             time.sleep(3)
         return drives
 
@@ -615,25 +616,30 @@ class Device(DeviceConfig, DevicePlugin):
             'the device has already been ejected, or your '
             'kernel is exporting a deprecated version of SYSFS.')
                     %self.__class__.__name__)
+        if DEBUG:
+            print '\nFound device nodes:', main, carda, cardb
 
         self._linux_mount_map = {}
         mp, ret = mount(main, 'main')
         if mp is None:
             raise DeviceError(
             _('Unable to mount main memory (Error code: %d)')%ret)
-        if not mp.endswith('/'): mp += '/'
+        if not mp.endswith('/'):
+            mp += '/'
         self._linux_mount_map[main] = mp
         self._main_prefix = mp
         self._linux_main_device_node = main
         cards = [(carda, '_card_a_prefix', 'carda'),
                  (cardb, '_card_b_prefix', 'cardb')]
         for card, prefix, typ in cards:
-            if card is None: continue
+            if card is None:
+                continue
             mp, ret = mount(card, typ)
             if mp is None:
                 print >>sys.stderr, 'Unable to mount card (Error code: %d)'%ret
             else:
-                if not mp.endswith('/'): mp += '/'
+                if not mp.endswith('/'):
+                    mp += '/'
                 setattr(self, prefix, mp)
                 self._linux_mount_map[card] = mp
 
@@ -656,6 +662,8 @@ class Device(DeviceConfig, DevicePlugin):
                     os.remove(path)
                 except:
                     pass
+            if DEBUG and ro:
+                print '\nThe mountpoint', mp, 'is readonly, ignoring it'
             return ro
 
         for mp in ('_main_prefix', '_card_a_prefix', '_card_b_prefix'):
@@ -678,7 +686,6 @@ class Device(DeviceConfig, DevicePlugin):
         if self._card_a_prefix is None and self._card_b_prefix is not None:
             self._card_a_prefix = self._card_b_prefix
             self._card_b_prefix = None
-
 
 # ------------------------------------------------------
 #
@@ -720,7 +727,7 @@ class Device(DeviceConfig, DevicePlugin):
                         d.serial == objif.GetProperty('usb.serial'):
                     dpaths = manager.FindDeviceStringMatch('storage.originating_device', path)
                     for dpath in dpaths:
-                        #devif = dbus.Interface(bus.get_object('org.freedesktop.Hal', dpath), 'org.freedesktop.Hal.Device')
+                        # devif = dbus.Interface(bus.get_object('org.freedesktop.Hal', dpath), 'org.freedesktop.Hal.Device')
                         try:
                             vpaths = manager.FindDeviceStringMatch('block.storage_device', dpath)
                             for vpath in vpaths:
@@ -731,19 +738,20 @@ class Device(DeviceConfig, DevicePlugin):
                                     if vdevif.GetProperty('volume.fsusage') != 'filesystem':
                                         continue
                                     volif = dbus.Interface(bus.get_object('org.freedesktop.Hal', vpath), 'org.freedesktop.Hal.Device.Volume')
-                                    pdevif = dbus.Interface(bus.get_object('org.freedesktop.Hal', vdevif.GetProperty('info.parent')), 'org.freedesktop.Hal.Device')
+                                    pdevif = dbus.Interface(bus.get_object('org.freedesktop.Hal', vdevif.GetProperty('info.parent')),
+                                                            'org.freedesktop.Hal.Device')
                                     vol = {'node': pdevif.GetProperty('block.device'),
                                             'dev': vdevif,
                                             'vol': volif,
                                             'label': vdevif.GetProperty('volume.label')}
                                     vols.append(vol)
-                                except dbus.exceptions.DBusException, e:
+                                except dbus.exceptions.DBusException as e:
                                     print e
                                     continue
-                        except dbus.exceptions.DBusException, e:
+                        except dbus.exceptions.DBusException as e:
                             print e
                             continue
-            except dbus.exceptions.DBusException, e:
+            except dbus.exceptions.DBusException as e:
                 continue
 
         def ocmp(x,y):
@@ -776,7 +784,7 @@ class Device(DeviceConfig, DevicePlugin):
                             print "ERROR: Timeout waiting for mount to complete"
                             continue
                     mp = vol['dev'].GetProperty('volume.mount_point')
-                except dbus.exceptions.DBusException, e:
+                except dbus.exceptions.DBusException as e:
                     print "Failed to mount ", e
                     continue
 
@@ -825,7 +833,7 @@ class Device(DeviceConfig, DevicePlugin):
                 print "FBSD:	umount main:", self._main_prefix
             try:
                 self._main_vol.Unmount([])
-            except dbus.exceptions.DBusException, e:
+            except dbus.exceptions.DBusException as e:
                 print 'Unable to eject ', e
 
         if self._card_a_prefix:
@@ -833,7 +841,7 @@ class Device(DeviceConfig, DevicePlugin):
                 print "FBSD:	umount card a:", self._card_a_prefix
             try:
                 self._card_a_vol.Unmount([])
-            except dbus.exceptions.DBusException, e:
+            except dbus.exceptions.DBusException as e:
                 print 'Unable to eject ', e
 
         if self._card_b_prefix:
@@ -841,7 +849,7 @@ class Device(DeviceConfig, DevicePlugin):
                 print "FBSD:	umount card b:", self._card_b_prefix
             try:
                 self._card_b_vol.Unmount([])
-            except dbus.exceptions.DBusException, e:
+            except dbus.exceptions.DBusException as e:
                 print 'Unable to eject ', e
 
         self._main_prefix = None
@@ -1015,6 +1023,13 @@ class Device(DeviceConfig, DevicePlugin):
 
         return path
 
+    def sanitize_callback(self, path):
+        '''
+        Callback to allow individual device drivers to override the path sanitization
+        used by :meth:`create_upload_path`.
+        '''
+        return sanitize(path)
+
     def filename_callback(self, default, mi):
         '''
         Callback to allow drivers to change the default file name
@@ -1044,11 +1059,11 @@ class Device(DeviceConfig, DevicePlugin):
     def create_upload_path(self, path, mdata, fname, create_dirs=True):
         from calibre.devices.utils import create_upload_path
         settings = self.settings()
-        filepath = create_upload_path(mdata, fname, self.save_template(), sanitize,
+        filepath = create_upload_path(mdata, fname, self.save_template(), self.sanitize_callback,
                 prefix_path=os.path.abspath(path),
                 maxlen=self.MAX_PATH_LEN,
-                use_subdirs = self.SUPPORTS_SUB_DIRS and settings.use_subdirs,
-                news_in_folder = self.NEWS_IN_FOLDER,
+                use_subdirs=self.SUPPORTS_SUB_DIRS and settings.use_subdirs,
+                news_in_folder=self.NEWS_IN_FOLDER,
                 filename_callback=self.filename_callback,
                 sanitize_path_components=self.sanitize_path_components
                 )
@@ -1060,4 +1075,4 @@ class Device(DeviceConfig, DevicePlugin):
         return filepath
 
     def create_annotations_path(self, mdata, device_path=None):
-         return self.create_upload_path(os.path.abspath('/<storage>'), mdata, 'x.bookmark', create_dirs=False)
+        return self.create_upload_path(os.path.abspath('/<storage>'), mdata, 'x.bookmark', create_dirs=False)

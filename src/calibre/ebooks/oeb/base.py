@@ -38,12 +38,13 @@ XLINK_NS     = 'http://www.w3.org/1999/xlink'
 CALIBRE_NS   = 'http://calibre.kovidgoyal.net/2009/metadata'
 RE_NS        = 'http://exslt.org/regular-expressions'
 MBP_NS       = 'http://www.mobipocket.com'
+EPUB_NS      = 'http://www.idpf.org/2007/ops'
 
 XPNSMAP      = {'h': XHTML_NS, 'o1': OPF1_NS, 'o2': OPF2_NS,
                 'd09': DC09_NS, 'd10': DC10_NS, 'd11': DC11_NS,
                 'xsi': XSI_NS, 'dt': DCTERMS_NS, 'ncx': NCX_NS,
                 'svg': SVG_NS, 'xl': XLINK_NS, 're': RE_NS,
-                'mbp': MBP_NS, 'calibre': CALIBRE_NS}
+                'mbp': MBP_NS, 'calibre': CALIBRE_NS, 'epub':EPUB_NS}
 
 OPF1_NSMAP   = {'dc': DC11_NS, 'oebpackage': OPF1_NS}
 OPF2_NSMAP   = {'opf': OPF2_NS, 'dc': DC11_NS, 'dcterms': DCTERMS_NS,
@@ -124,8 +125,8 @@ def iterlinks(root, find_links_in_css=True):
 
         if tag == XHTML('object'):
             codebase = None
-            ## <object> tags have attributes that are relative to
-            ## codebase
+            # <object> tags have attributes that are relative to
+            # codebase
             if 'codebase' in attribs:
                 codebase = el.get('codebase')
                 yield (el, 'codebase', codebase, 0)
@@ -325,6 +326,11 @@ def xpath(elem, expr):
     return elem.xpath(expr, namespaces=XPNSMAP)
 
 def xml2str(root, pretty_print=False, strip_comments=False, with_tail=True):
+    if not strip_comments:
+        # -- in comments trips up adobe digital editions
+        for x in root.iterdescendants(etree.Comment):
+            if x.text and '--' in x.text:
+                x.text = x.text.replace('--', '__')
     ans = etree.tostring(root, encoding='utf-8', xml_declaration=True,
                           pretty_print=pretty_print, with_tail=with_tail)
 
@@ -598,8 +604,8 @@ class Metadata(object):
                 allowed = self.allowed
                 if allowed is not None and term not in allowed:
                     raise AttributeError(
-                        'attribute %r not valid for metadata term %r'
-                            % (self.attr(term), barename(obj.term)))
+                        'attribute %r not valid for metadata term %r' % (
+                            self.attr(term), barename(obj.term)))
                 return self.attr(term)
 
             def __get__(self, obj, cls):
@@ -907,6 +913,7 @@ class Manifest(object):
 
         def _parse_css(self, data):
             from cssutils import CSSParser, log, resolveImports
+            from cssutils.css import CSSRule
             log.setLevel(logging.WARN)
             log.raiseExceptions = False
             self.oeb.log.debug('Parsing', self.href, '...')
@@ -918,6 +925,8 @@ class Manifest(object):
             data = parser.parseString(data, href=self.href, validate=False)
             data = resolveImports(data)
             data.namespaces['h'] = XHTML_NS
+            for rule in tuple(data.cssRules.rulesOfType(CSSRule.PAGE_RULE)):
+                data.cssRules.remove(rule)
             return data
 
         def _fetch_css(self, path):

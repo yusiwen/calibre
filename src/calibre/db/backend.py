@@ -27,7 +27,8 @@ from calibre.utils.icu import sort_key
 from calibre.utils.config import to_json, from_json, prefs, tweaks
 from calibre.utils.date import utcfromtimestamp, parse_date
 from calibre.utils.filenames import (
-    is_case_sensitive, samefile, hardlink_file, ascii_filename, WindowsAtomicFolderMove, atomic_rename)
+    is_case_sensitive, samefile, hardlink_file, ascii_filename,
+    WindowsAtomicFolderMove, atomic_rename, remove_dir_if_empty)
 from calibre.utils.magick.draw import save_cover_data_to
 from calibre.utils.formatter_functions import load_user_template_functions
 from calibre.db.tables import (OneToOneTable, ManyToOneTable, ManyToManyTable,
@@ -102,14 +103,13 @@ class DBPrefs(dict):  # {{{
 
     def __delitem__(self, key):
         dict.__delitem__(self, key)
-        self.db.conn.execute('DELETE FROM preferences WHERE key=?', (key,))
+        self.db.execute('DELETE FROM preferences WHERE key=?', (key,))
 
     def __setitem__(self, key, val):
         if self.disable_setting:
             return
         raw = self.to_raw(val)
-        self.db.conn.execute('INSERT OR REPLACE INTO preferences (key,val) VALUES (?,?)', (key,
-            raw))
+        self.db.execute('INSERT OR REPLACE INTO preferences (key,val) VALUES (?,?)', (key, raw))
         dict.__setitem__(self, key, val)
 
     def set(self, key, val):
@@ -234,7 +234,7 @@ def AumSortedConcatenate():
 
 class Connection(apsw.Connection):  # {{{
 
-    BUSY_TIMEOUT = 2000  # milliseconds
+    BUSY_TIMEOUT = 10000  # milliseconds
 
     def __init__(self, path):
         apsw.Connection.__init__(self, path)
@@ -348,13 +348,13 @@ class DB(object):
             os.makedirs(self.library_path)
         self.is_case_sensitive = is_case_sensitive(self.library_path)
 
-        SchemaUpgrade(self.conn, self.library_path, self.field_metadata)
+        SchemaUpgrade(self, self.library_path, self.field_metadata)
 
         # Guarantee that the library_id is set
         self.library_id
 
         # Fix legacy triggers and columns
-        self.conn.execute('''
+        self.execute('''
         DROP TRIGGER IF EXISTS author_insert_trg;
         CREATE TEMP TRIGGER author_insert_trg
             AFTER INSERT ON authors
@@ -407,6 +407,7 @@ class DB(object):
         defs['categories_using_hierarchy'] = []
         defs['column_color_rules'] = []
         defs['column_icon_rules'] = []
+        defs['cover_grid_icon_rules'] = []
         defs['grouped_search_make_user_categories'] = []
         defs['similar_authors_search_key'] = 'authors'
         defs['similar_authors_match_kind'] = 'match_any'
@@ -428,6 +429,7 @@ class DB(object):
         defs['virtual_lib_on_startup'] = defs['cs_virtual_lib_on_startup'] = ''
         defs['virt_libs_hidden'] = defs['virt_libs_order'] = ()
         defs['update_all_last_mod_dates_on_start'] = False
+        defs['field_under_covers_in_grid'] = 'title'
 
         # Migrate the bool tristate tweak
         defs['bools_are_tristate'] = \
@@ -526,7 +528,7 @@ class DB(object):
                     'SELECT id FROM custom_columns WHERE mark_for_delete=1'):
                 num = record[0]
                 table, lt = self.custom_table_names(num)
-                self.conn.execute('''\
+                self.execute('''\
                         DROP INDEX   IF EXISTS {table}_idx;
                         DROP INDEX   IF EXISTS {lt}_aidx;
                         DROP INDEX   IF EXISTS {lt}_bidx;
@@ -543,7 +545,7 @@ class DB(object):
                         '''.format(table=table, lt=lt)
                 )
                 self.prefs.set('update_all_last_mod_dates_on_start', True)
-            self.conn.execute('DELETE FROM custom_columns WHERE mark_for_delete=1')
+            self.execute('DELETE FROM custom_columns WHERE mark_for_delete=1')
 
         # Load metadata for custom columns
         self.custom_column_label_map, self.custom_column_num_map = {}, {}
@@ -599,12 +601,12 @@ class DB(object):
                 for data in remove:
                     prints('WARNING: Custom column %r not found, removing.' %
                             data['label'])
-                    self.conn.execute('DELETE FROM custom_columns WHERE id=?',
+                    self.execute('DELETE FROM custom_columns WHERE id=?',
                             (data['num'],))
 
         if triggers:
             with self.conn:
-                self.conn.execute('''\
+                self.execute('''\
                     CREATE TEMP TRIGGER custom_books_delete_trg
                         AFTER DELETE ON books
                         BEGIN
@@ -786,6 +788,42 @@ class DB(object):
                 self._conn = Connection(self.dbpath)
         return self._conn
 
+    def execute(self, sql, bindings=None):
+        try:
+            return self.conn.cursor().execute(sql, bindings)
+        except apsw.IOError:
+            # This can happen if the computer was suspended see for example:
+            # https://bugs.launchpad.net/bugs/1286522. Try to reopen the db
+            if not self.conn.getautocommit():
+                raise  # We are in a transaction, re-opening the db will fail anyway
+            self.reopen(force=True)
+            return self.conn.cursor().execute(sql, bindings)
+
+    def executemany(self, sql, sequence_of_bindings):
+        try:
+            with self.conn:  # Disable autocommit mode, for performance
+                return self.conn.cursor().executemany(sql, sequence_of_bindings)
+        except apsw.IOError:
+            # This can happen if the computer was suspended see for example:
+            # https://bugs.launchpad.net/bugs/1286522. Try to reopen the db
+            if not self.conn.getautocommit():
+                raise  # We are in a transaction, re-opening the db will fail anyway
+            self.reopen(force=True)
+            with self.conn:  # Disable autocommit mode, for performance
+                return self.conn.cursor().executemany(sql, sequence_of_bindings)
+
+    def get(self, *args, **kw):
+        ans = self.execute(*args)
+        if kw.get('all', True):
+            return ans.fetchall()
+        try:
+            return ans.next()[0]
+        except (StopIteration, IndexError):
+            return None
+
+    def last_insert_rowid(self):
+        return self.conn.last_insert_rowid()
+
     def custom_field_name(self, label=None, num=None):
         if label is not None:
             return self.field_metadata.custom_field_prefix + label
@@ -799,17 +837,17 @@ class DB(object):
     def set_custom_column_metadata(self, num, name=None, label=None, is_editable=None, display=None):
         changed = False
         if name is not None:
-            self.conn.execute('UPDATE custom_columns SET name=? WHERE id=?', (name, num))
+            self.execute('UPDATE custom_columns SET name=? WHERE id=?', (name, num))
             changed = True
         if label is not None:
-            self.conn.execute('UPDATE custom_columns SET label=? WHERE id=?', (label, num))
+            self.execute('UPDATE custom_columns SET label=? WHERE id=?', (label, num))
             changed = True
         if is_editable is not None:
-            self.conn.execute('UPDATE custom_columns SET editable=? WHERE id=?', (bool(is_editable), num))
+            self.execute('UPDATE custom_columns SET editable=? WHERE id=?', (bool(is_editable), num))
             self.custom_column_num_map[num]['is_editable'] = bool(is_editable)
             changed = True
         if display is not None:
-            self.conn.execute('UPDATE custom_columns SET display=? WHERE id=?', (json.dumps(display), num))
+            self.execute('UPDATE custom_columns SET display=? WHERE id=?', (json.dumps(display), num))
             changed = True
         # Note: the caller is responsible for scheduling a metadata backup if necessary
         return changed
@@ -825,7 +863,7 @@ class DB(object):
         normalized  = datatype not in ('datetime', 'comments', 'int', 'bool',
                 'float', 'composite')
         is_multiple = is_multiple and datatype in ('text', 'composite')
-        self.conn.execute(
+        self.execute(
                 ('INSERT INTO '
                 'custom_columns(label,name,datatype,is_multiple,editable,display,normalized)'
                 'VALUES (?,?,?,?,?,?,?)'),
@@ -967,22 +1005,22 @@ class DB(object):
                 '''.format(table=table),
             ]
         script = ' \n'.join(lines)
-        self.conn.execute(script)
+        self.execute(script)
         self.prefs.set('update_all_last_mod_dates_on_start', True)
         return num
     # }}}
 
     def delete_custom_column(self, label=None, num=None):
         data = self.custom_field_metadata(label, num)
-        self.conn.execute('UPDATE custom_columns SET mark_for_delete=1 WHERE id=?', (data['num'],))
+        self.execute('UPDATE custom_columns SET mark_for_delete=1 WHERE id=?', (data['num'],))
 
-    def close(self):
+    def close(self, force=False):
         if getattr(self, '_conn', None) is not None:
-            self._conn.close()
+            self._conn.close(force)
             del self._conn
 
-    def reopen(self):
-        self.close()
+    def reopen(self, force=False):
+        self.close(force)
         self._conn = None
         self.conn
 
@@ -1018,7 +1056,7 @@ class DB(object):
                     self.reopen()
 
     def vacuum(self):
-        self.conn.execute('VACUUM')
+        self.execute('VACUUM')
 
     @dynamic_property
     def user_version(self):
@@ -1028,7 +1066,7 @@ class DB(object):
             return self.conn.get('pragma user_version;', all=False)
 
         def fset(self, val):
-            self.conn.execute('pragma user_version=%d'%int(val))
+            self.execute('pragma user_version=%d'%int(val))
 
         return property(doc=doc, fget=fget, fset=fset)
 
@@ -1074,8 +1112,11 @@ class DB(object):
         l = self.PATH_LIMIT - (len(book_id) // 2) - 2
         author = ascii_filename(author)[:l].decode('ascii', 'replace')
         title  = ascii_filename(title)[:l].decode('ascii', 'replace')
-        while author[-1] in (' ', '.'):
-            author = author[:-1]
+        try:
+            while author[-1] in (' ', '.'):
+                author = author[:-1]
+        except IndexError:
+            author = ''
         if not author:
             author = ascii_filename(_('Unknown')).decode(
                     'ascii', 'replace')
@@ -1098,6 +1139,8 @@ class DB(object):
         name   = title + ' - ' + author
         while name.endswith('.'):
             name = name[:-1]
+        if not name:
+            name = ascii_filename(_('Unknown')).decode('ascii', 'replace')
         return name
 
     # Database layer API {{{
@@ -1132,7 +1175,7 @@ class DB(object):
 
         def fset(self, val):
             self._library_id_ = unicode(val)
-            self.conn.execute('''
+            self.execute('''
                     DELETE FROM library_id;
                     INSERT INTO library_id (uuid) VALUES (?);
                     ''', (self._library_id_,))
@@ -1148,8 +1191,7 @@ class DB(object):
         Read all data from the db into the python in-memory tables
         '''
 
-        with self.conn:  # Use a single transaction, to ensure nothing modifies
-                         # the db while we are reading
+        with self.conn:  # Use a single transaction, to ensure nothing modifies the db while we are reading
             for table in self.tables.itervalues():
                 try:
                     table.read(self)
@@ -1172,6 +1214,13 @@ class DB(object):
         if fmt and candidates and os.path.exists(candidates[0]):
             shutil.copyfile(candidates[0], fmt_path)
             return fmt_path
+
+    def apply_to_format(self, book_id, path, fname, fmt, func, missing_value=None):
+        path = self.format_abspath(book_id, fmt, fname, path)
+        if path is None:
+            return missing_value
+        with lopen(path, 'r+b') as f:
+            return func(f)
 
     def format_hash(self, book_id, fmt, fname, path):
         path = self.format_abspath(book_id, fmt, fname, path)
@@ -1234,7 +1283,12 @@ class DB(object):
                     f = lopen(path, 'rb')
                 except (IOError, OSError):
                     time.sleep(0.2)
-                f = lopen(path, 'rb')
+                try:
+                    f = lopen(path, 'rb')
+                except (IOError, OSError) as e:
+                    # Ensure the path that caused this error is reported
+                    raise Exception('Failed to open %r with error: %s' % (path, e))
+
                 with f:
                     if hasattr(dest, 'write'):
                         shutil.copyfileobj(f, dest)
@@ -1490,25 +1544,21 @@ class DB(object):
             return f.read()
 
     def remove_books(self, path_map, permanent=False):
-        self.conn.executemany(
+        self.executemany(
             'DELETE FROM books WHERE id=?', [(x,) for x in path_map])
         paths = {os.path.join(self.library_path, x) for x in path_map.itervalues() if x}
         paths = {x for x in paths if os.path.exists(x) and self.is_deletable(x)}
         if permanent:
             for path in paths:
                 self.rmtree(path)
-                try:
-                    os.rmdir(os.path.dirname(path))
-                except OSError as e:
-                    if e.errno != errno.ENOTEMPTY:
-                        raise
+                remove_dir_if_empty(os.path.dirname(path), ignore_metadata_caches=True)
         else:
             delete_service().delete_books(paths, self.library_path)
 
     def add_custom_data(self, name, val_map, delete_first):
         if delete_first:
-            self.conn.execute('DELETE FROM books_plugin_data WHERE name=?', (name, ))
-        self.conn.executemany(
+            self.execute('DELETE FROM books_plugin_data WHERE name=?', (name, ))
+        self.executemany(
             'INSERT OR REPLACE INTO books_plugin_data (book, name, val) VALUES (?, ?, ?)',
             [(book_id, name, json.dumps(val, default=to_json))
                     for book_id, val in val_map.iteritems()])
@@ -1524,11 +1574,11 @@ class DB(object):
         if len(book_ids) == 1:
             bid = next(iter(book_ids))
             ans = {book_id:safe_load(val) for book_id, val in
-                   self.conn.execute('SELECT book, val FROM books_plugin_data WHERE book=? AND name=?', (bid, name))}
+                   self.execute('SELECT book, val FROM books_plugin_data WHERE book=? AND name=?', (bid, name))}
             return ans or {bid:default}
 
         ans = {}
-        for book_id, val in self.conn.execute(
+        for book_id, val in self.execute(
             'SELECT book, val FROM books_plugin_data WHERE name=?', (name,)):
             if not book_ids or book_id in book_ids:
                 val = safe_load(val)
@@ -1537,13 +1587,13 @@ class DB(object):
 
     def delete_custom_book_data(self, name, book_ids):
         if book_ids:
-            self.conn.executemany('DELETE FROM books_plugin_data WHERE book=? AND name=?',
+            self.executemany('DELETE FROM books_plugin_data WHERE book=? AND name=?',
                                   [(book_id, name) for book_id in book_ids])
         else:
-            self.conn.execute('DELETE FROM books_plugin_data WHERE name=?', (name,))
+            self.execute('DELETE FROM books_plugin_data WHERE name=?', (name,))
 
     def get_ids_for_custom_book_data(self, name):
-        return frozenset(r[0] for r in self.conn.execute('SELECT book FROM books_plugin_data WHERE name=?', (name,)))
+        return frozenset(r[0] for r in self.execute('SELECT book FROM books_plugin_data WHERE name=?', (name,)))
 
     def conversion_options(self, book_id, fmt):
         for (data,) in self.conn.get('SELECT data FROM conversion_options WHERE book=? AND format=?', (book_id, fmt.upper())):
@@ -1552,20 +1602,21 @@ class DB(object):
 
     def has_conversion_options(self, ids, fmt='PIPE'):
         ids = frozenset(ids)
-        self.conn.execute('DROP TABLE IF EXISTS conversion_options_temp; CREATE TEMP TABLE conversion_options_temp (id INTEGER PRIMARY KEY);')
-        self.conn.executemany('INSERT INTO conversion_options_temp VALUES (?)', [(x,) for x in ids])
-        for (book_id,) in self.conn.get(
-            'SELECT book FROM conversion_options WHERE format=? AND book IN (SELECT id FROM conversion_options_temp)', (fmt.upper(),)):
-            return True
-        return False
+        with self.conn:
+            self.execute('DROP TABLE IF EXISTS conversion_options_temp; CREATE TEMP TABLE conversion_options_temp (id INTEGER PRIMARY KEY);')
+            self.executemany('INSERT INTO conversion_options_temp VALUES (?)', [(x,) for x in ids])
+            for (book_id,) in self.conn.get(
+                'SELECT book FROM conversion_options WHERE format=? AND book IN (SELECT id FROM conversion_options_temp)', (fmt.upper(),)):
+                return True
+            return False
 
     def delete_conversion_options(self, book_ids, fmt):
-        self.conn.executemany('DELETE FROM conversion_options WHERE book=? AND format=?',
+        self.executemany('DELETE FROM conversion_options WHERE book=? AND format=?',
             [(book_id, fmt.upper()) for book_id in book_ids])
 
     def set_conversion_options(self, options, fmt):
         options = [(book_id, fmt.upper(), buffer(cPickle.dumps(data, -1))) for book_id, data in options.iteritems()]
-        self.conn.executemany('INSERT OR REPLACE INTO conversion_options(book,format,data) VALUES (?,?,?)', options)
+        self.executemany('INSERT OR REPLACE INTO conversion_options(book,format,data) VALUES (?,?,?)', options)
 
     def get_top_level_move_items(self, all_paths):
         items = set(os.listdir(self.library_path))
@@ -1621,9 +1672,7 @@ class DB(object):
                 pass
 
     def restore_book(self, book_id, path, formats):
-        self.conn.execute('UPDATE books SET path=? WHERE id=?', (path.replace(os.sep, '/'), book_id))
+        self.execute('UPDATE books SET path=? WHERE id=?', (path.replace(os.sep, '/'), book_id))
         vals = [(book_id, fmt, size, name) for fmt, size, name in formats]
-        self.conn.executemany('INSERT INTO data (book,format,uncompressed_size,name) VALUES (?,?,?,?)', vals)
-   # }}}
-
-
+        self.executemany('INSERT INTO data (book,format,uncompressed_size,name) VALUES (?,?,?,?)', vals)
+    # }}}

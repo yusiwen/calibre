@@ -15,6 +15,7 @@ from calibre.ebooks.metadata import MetaInformation, check_isbn
 from calibre.ebooks.mobi.langcodes import main_language, sub_language, mobi2iana
 from calibre.utils.cleantext import clean_ascii_chars, clean_xml_chars
 from calibre.utils.localization import canonicalize_lang
+from calibre.utils.config_base import tweaks
 
 NULL_INDEX = 0xffffffff
 
@@ -31,6 +32,7 @@ class EXTHHeader(object):  # {{{
         left = self.num_items
         self.kf8_header = None
         self.uuid = self.cdetype = None
+        self.page_progression_direction = None
 
         self.decode = lambda x : clean_ascii_chars(x.decode(codec, 'replace'))
 
@@ -80,7 +82,14 @@ class EXTHHeader(object):  # {{{
                         self.mi.language = lang
                 except:
                     pass
-            #else:
+            elif idx == 527:
+                try:
+                    ppd = content.decode(codec)
+                    if ppd:
+                        self.page_progression_direction = ppd
+                except Exception:
+                    pass
+            # else:
             #    print 'unknown record', idx, repr(content)
         if title:
             self.mi.title = replace_entities(clean_xml_chars(clean_ascii_chars(title)))
@@ -90,9 +99,18 @@ class EXTHHeader(object):  # {{{
             if self.mi.is_null('authors'):
                 self.mi.authors = []
             au = clean_xml_chars(self.decode(content).strip())
-            self.mi.authors.append(au)
-            if self.mi.is_null('author_sort') and re.match(r'\S+?\s*,\s+\S+', au.strip()):
-                self.mi.author_sort = au.strip()
+            # Author names in Amazon  MOBI files are usually in LN, FN format,
+            # try to detect and auto-correct that.
+            m = re.match(r'([^,]+?)\s*,\s+([^,]+)$', au.strip())
+            if m is not None:
+                if tweaks['author_sort_copy_method'] != 'copy':
+                    self.mi.authors.append(m.group(2) + ' ' + m.group(1))
+                else:
+                    self.mi.authors.append(m.group())
+                if self.mi.is_null('author_sort'):
+                    self.mi.author_sort = m.group()
+            else:
+                self.mi.authors.append(au)
         elif idx == 101:
             self.mi.publisher = clean_xml_chars(self.decode(content).strip())
             if self.mi.publisher in {'Unknown', _('Unknown')}:
@@ -115,6 +133,8 @@ class EXTHHeader(object):  # {{{
                 pass
         elif idx == 108:
             self.mi.book_producer = clean_xml_chars(self.decode(content).strip())
+        elif idx == 109:
+            self.mi.rights = clean_xml_chars(self.decode(content).strip())
         elif idx == 112:  # dc:source set in some EBSP amazon samples
             try:
                 content = content.decode(codec).strip()
@@ -143,7 +163,7 @@ class EXTHHeader(object):  # {{{
             self.kf8_header, = struct.unpack(b'>L', content)
             if self.kf8_header == NULL_INDEX:
                 self.kf8_header = None
-        #else:
+        # else:
         #    print 'unhandled metadata record', idx, repr(content)
 # }}}
 

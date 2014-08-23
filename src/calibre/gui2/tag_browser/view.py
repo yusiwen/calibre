@@ -11,7 +11,7 @@ import cPickle, os
 from functools import partial
 from itertools import izip
 
-from PyQt4.Qt import (QStyledItemDelegate, Qt, QTreeView, pyqtSignal, QSize,
+from PyQt5.Qt import (QStyledItemDelegate, Qt, QTreeView, pyqtSignal, QSize,
         QIcon, QApplication, QMenu, QPoint, QModelIndex, QToolTip, QCursor,
         QDrag)
 
@@ -22,14 +22,14 @@ from calibre.gui2.tag_browser.model import (TagTreeItem, TAG_SEARCH_STATES,
 from calibre.gui2 import config, gprefs, choose_files, pixmap_to_data
 from calibre.utils.icu import sort_key
 
-class TagDelegate(QStyledItemDelegate): # {{{
+class TagDelegate(QStyledItemDelegate):  # {{{
 
     def __init__(self, *args, **kwargs):
         QStyledItemDelegate.__init__(self, *args, **kwargs)
         self.old_look = gprefs['tag_browser_old_look']
 
     def paint(self, painter, option, index):
-        item = index.data(Qt.UserRole).toPyObject()
+        item = index.data(Qt.UserRole)
         QStyledItemDelegate.paint(self, painter, option, index)
         widget = self.parent()
         style = QApplication.style() if widget is None else widget.style()
@@ -68,7 +68,7 @@ class TagDelegate(QStyledItemDelegate): # {{{
 
     # }}}
 
-class TagsView(QTreeView): # {{{
+class TagsView(QTreeView):  # {{{
 
     refresh_required        = pyqtSignal()
     tags_marked             = pyqtSignal(object)
@@ -130,8 +130,8 @@ class TagsView(QTreeView): # {{{
         self.setStyleSheet('''
                 QTreeView::item {
                     border: 1px solid transparent;
-                    padding-top:0.9ex;
-                    padding-bottom:0.9ex;
+                    padding-top:0.8ex;
+                    padding-bottom:0.8ex;
                 }
 
                 QTreeView::item:hover {
@@ -142,6 +142,9 @@ class TagsView(QTreeView): # {{{
         ''' + ('' if gprefs['tag_browser_old_look'] else stylish_tb))
         if gprefs['tag_browser_old_look']:
             self.setAlternatingRowColors(True)
+        # Allowing keyboard focus looks bad in the Qt Fusion style and is useless
+        # anyway since the enter/spacebar keys do nothing
+        self.setFocusPolicy(Qt.NoFocus)
 
     @property
     def hidden_categories(self):
@@ -178,7 +181,7 @@ class TagsView(QTreeView): # {{{
     def set_database(self, db, alter_tb):
         self._model.set_database(db)
         self.alter_tb = alter_tb
-        self.pane_is_visible = True # because TagsModel.set_database did a recount
+        self.pane_is_visible = True  # because TagsModel.set_database did a recount
         self.setModel(self._model)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         pop = self.db.CATEGORY_SORTS.index(config['sort_tags_by'])
@@ -246,7 +249,7 @@ class TagsView(QTreeView): # {{{
             QTreeView.mouseMoveEvent(self, event)
             return
         md = self._model.mimeData([dex])
-        pixmap = dex.data(Qt.DecorationRole).toPyObject().pixmap(25, 25)
+        pixmap = dex.data(Qt.DecorationRole).pixmap(25, 25)
         drag = QDrag(self)
         drag.setPixmap(pixmap)
         drag.setMimeData(md)
@@ -396,7 +399,7 @@ class TagsView(QTreeView): # {{{
             return
 
     def show_context_menu(self, point):
-        def display_name( tag):
+        def display_name(tag):
             if tag.category == 'search':
                 n = tag.name
                 if len(n) > 45:
@@ -408,7 +411,7 @@ class TagsView(QTreeView): # {{{
         self.context_menu = QMenu(self)
 
         if index.isValid():
-            item = index.data(Qt.UserRole).toPyObject()
+            item = index.data(Qt.UserRole)
             tag = None
 
             if item.type == TagTreeItem.TAG:
@@ -421,7 +424,7 @@ class TagsView(QTreeView): # {{{
                 if not item.category_key.startswith('@'):
                     while item.parent != self._model.root_item:
                         item = item.parent
-                category = unicode(item.name.toString())
+                category = unicode(item.name or '')
                 key = item.category_key
                 # Verify that we are working with a field that we know something about
                 if key not in self.db.field_metadata:
@@ -486,7 +489,7 @@ class TagsView(QTreeView): # {{{
                                             dict(item=display_name(tag), cat=item.py_name),
                                 partial(self.context_menu_handler,
                                         action='delete_item_from_user_category',
-                                        key = key, index = tag_item))
+                                        key=key, index=tag_item))
                     if tag.is_searchable:
                         # Add the search for value items. All leaf nodes are searchable
                         self.context_menu.addAction(self.search_icon,
@@ -582,7 +585,6 @@ class TagsView(QTreeView): # {{{
             self.context_menu.addAction(_('Show all categories'),
                         partial(self.context_menu_handler, action='defaults'))
 
-
         m = self.context_menu.addMenu(_('Change sub-categorization scheme'))
         da = m.addAction(_('Disable'),
             partial(self.context_menu_handler, action='categorization', category='disable'))
@@ -626,7 +628,7 @@ class TagsView(QTreeView): # {{{
         if not index.isValid():
             return
         src_is_tb = event.mimeData().hasFormat('application/calibre+from_tag_browser')
-        item = index.data(Qt.UserRole).toPyObject()
+        item = index.data(Qt.UserRole)
         if item.type == TagTreeItem.ROOT:
             return
         flags = self._model.flags(index)
@@ -662,7 +664,7 @@ class TagsView(QTreeView): # {{{
             self.model().clear_state()
 
     def is_visible(self, idx):
-        item = idx.data(Qt.UserRole).toPyObject()
+        item = idx.data(Qt.UserRole)
         if getattr(item, 'type', None) == TagTreeItem.TAG:
             idx = idx.parent()
         return self.isExpanded(idx)
@@ -711,7 +713,7 @@ class TagsView(QTreeView): # {{{
 
     def show_item_at_index(self, idx, box=False,
                            position=QTreeView.PositionAtCenter):
-        if idx.isValid() and idx.data(Qt.UserRole).toPyObject() is not self._model.root_item:
+        if idx.isValid() and idx.data(Qt.UserRole) is not self._model.root_item:
             self.expand_parent(idx)
             self.setCurrentIndex(idx)
             self.scrollTo(idx, position)

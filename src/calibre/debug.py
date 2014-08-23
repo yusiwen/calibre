@@ -12,71 +12,73 @@ from calibre.constants import iswindows
 from calibre import prints
 
 def option_parser():
-    parser = OptionParser(usage='''\
+    parser = OptionParser(usage=_('''\
 %prog [options]
 
 Various command line interfaces useful for debugging calibre. With no options,
 this command starts an embedded python interpreter. You can also run the main
-calibre GUI and the calibre viewer in debug mode.
+calibre GUI, the calibre viewer and the calibre editor in debug mode.
 
 It also contains interfaces to various bits of calibre that do not have
-dedicated command line tools, such as font subsetting, tweaking ebooks and so
+dedicated command line tools, such as font subsetting, the ebook diff tool and so
 on.
 
 You can also use %prog to run standalone scripts. To do that use it like this:
 
-    %prog mysrcipt.py -- --option1 --option2 file1 file2 ...
+    %prog myscript.py -- --option1 --option2 file1 file2 ...
 
 Everything after the -- is passed to the script.
-''')
-    parser.add_option('-c', '--command', help='Run python code.')
-    parser.add_option('-e', '--exec-file', help='Run the python code in file.')
-    parser.add_option('-f', '--subset-font', help='Subset the specified font')
+'''))
+    parser.add_option('-c', '--command', help=_('Run python code.'))
+    parser.add_option('-e', '--exec-file', help=_('Run the python code in file.'))
+    parser.add_option('-f', '--subset-font', help=_('Subset the specified font'))
     parser.add_option('-d', '--debug-device-driver', default=False, action='store_true',
-                      help='Debug device detection')
+                      help=_('Debug device detection'))
     parser.add_option('-g', '--gui',  default=False, action='store_true',
-                      help='Run the GUI with debugging enabled. Debug output is '
-                      'printed to stdout and stderr.')
+                      help=_('Run the GUI with debugging enabled. Debug output is '
+                      'printed to stdout and stderr.'))
     parser.add_option('--gui-debug',  default=None,
-                      help='Run the GUI with a debug console, logging to the'
+                      help=_('Run the GUI with a debug console, logging to the'
                       ' specified path. For internal use only, use the -g'
-                      ' option to run the GUI in debug mode',)
-    parser.add_option('--show-gui-debug',  default=None,
-                      help='Display the specified log file. For internal use'
-                      ' only.',)
+                      ' option to run the GUI in debug mode'))
     parser.add_option('-w', '--viewer',  default=False, action='store_true',
-                      help='Run the ebook viewer',)
+                      help=_('Run the ebook viewer in debug mode'))
     parser.add_option('--paths', default=False, action='store_true',
-            help='Output the paths necessary to setup the calibre environment')
+            help=_('Output the paths necessary to setup the calibre environment'))
     parser.add_option('--add-simple-plugin', default=None,
-            help='Add a simple plugin (i.e. a plugin that consists of only a '
+            help=_('Add a simple plugin (i.e. a plugin that consists of only a '
             '.py file), by specifying the path to the py file containing the '
-            'plugin code.')
+            'plugin code.'))
     parser.add_option('--reinitialize-db', default=None,
-            help='Re-initialize the sqlite calibre database at the '
-            'specified path. Useful to recover from db corruption.')
-    parser.add_option('-p', '--py-console', help='Run python console',
+            help=_('Re-initialize the sqlite calibre database at the '
+            'specified path. Useful to recover from db corruption.'))
+    parser.add_option('-p', '--py-console', help=_('Run python console'),
             default=False, action='store_true')
     parser.add_option('-m', '--inspect-mobi', action='store_true',
             default=False,
-            help='Inspect the MOBI file(s) at the specified path(s)')
-    parser.add_option('-t', '--tweak-book', default=None,
-            help='Tweak the book (exports the book as a collection of HTML '
+            help=_('Inspect the MOBI file(s) at the specified path(s)'))
+    parser.add_option('-t', '--edit-book', action='store_true',
+            help=_('Launch the calibre Edit Book tool in debug mode.'))
+    parser.add_option('-x', '--explode-book', default=None,
+            help=_('Explode the book (exports the book as a collection of HTML '
             'files and metadata, which you can edit using standard HTML '
             'editing tools, and then rebuilds the file from the edited HTML. '
             'Makes no additional changes to the HTML, unlike a full calibre '
-            'conversion).')
+            'conversion).'))
     parser.add_option('-s', '--shutdown-running-calibre', default=False,
             action='store_true',
             help=_('Cause a running calibre instance, if any, to be'
                 ' shutdown. Note that if there are running jobs, they '
                 'will be silently aborted, so use with care.'))
-    parser.add_option('--test-build', help='Test binary modules in build',
+    parser.add_option('--test-build', help=_('Test binary modules in build'),
             action='store_true', default=False)
     parser.add_option('-r', '--run-plugin', help=_(
         'Run a plugin that provides a command line interface. For example:\n'
         'calibre-debug -r "Add Books" -- file1 --option1\n'
         'Everything after the -- will be passed to the plugin as arguments.'))
+    parser.add_option('--diff', action='store_true', default=False, help=_(
+        'Run the calibre diff tool. For example:\n'
+        'calibre-debug --diff file1 file2'))
 
     return parser
 
@@ -169,6 +171,10 @@ def print_basic_debug_info(out=None):
             out('Linux:', platform.linux_distribution())
     except:
         pass
+    from calibre.customize.ui import has_external_plugins, initialized_plugins
+    if has_external_plugins():
+        names = (p.name for p in initialized_plugins() if getattr(p, 'plugin_path', None) is not None)
+        out('Successfully initialized third party plugins:', ' && '.join(names))
 
 def run_debug_gui(logpath):
     import time
@@ -211,24 +217,9 @@ def main(args=sys.argv):
         main(['calibre'])
     elif opts.gui_debug is not None:
         run_debug_gui(opts.gui_debug)
-    elif opts.show_gui_debug:
-        import time, re
-        time.sleep(1)
-        from calibre.gui2 import open_local_file
-        if iswindows:
-            with open(opts.show_gui_debug, 'r+b') as f:
-                raw = f.read()
-                raw = re.sub('(?<!\r)\n', '\r\n', raw)
-                f.seek(0)
-                f.truncate()
-                f.write(raw)
-        open_local_file(opts.show_gui_debug)
     elif opts.viewer:
         from calibre.gui2.viewer.main import main
-        vargs = ['ebook-viewer', '--debug-javascript']
-        if len(args) > 1:
-            vargs.append(args[-1])
-        main(vargs)
+        main(['ebook-viewer'] + args[1:])
     elif opts.py_console:
         from calibre.utils.pyconsole.main import main
         main()
@@ -248,9 +239,12 @@ def main(args=sys.argv):
     elif opts.inspect_mobi:
         for path in args[1:]:
             inspect_mobi(path)
-    elif opts.tweak_book:
+    elif opts.edit_book:
+        from calibre.gui2.tweak_book.main import main
+        main(['ebook-edit'] + args[1:])
+    elif opts.explode_book:
         from calibre.ebooks.tweak import tweak
-        tweak(opts.tweak_book)
+        tweak(opts.explode_book)
     elif opts.test_build:
         from calibre.test_build import test
         test()
@@ -269,12 +263,15 @@ def main(args=sys.argv):
             prints(_('No plugin named %s found')%opts.run_plugin)
             raise SystemExit(1)
         plugin.cli_main([plugin.name] + args[1:])
+    elif opts.diff:
+        from calibre.gui2.tweak_book.diff.main import main
+        main(['calibre-diff'] + args[1:])
     elif len(args) >= 2 and args[1].rpartition('.')[-1] in {'py', 'recipe'}:
         run_script(args[1], args[2:])
-    elif len(args) >= 2 and args[1].rpartition('.')[-1] in {'mobi', 'azw', 'azw3', 'docx'}:
+    elif len(args) >= 2 and args[1].rpartition('.')[-1] in {'mobi', 'azw', 'azw3', 'docx', 'odt'}:
         for path in args[1:]:
             ext = path.rpartition('.')[-1]
-            if ext == 'docx':
+            if ext in {'docx', 'odt'}:
                 from calibre.ebooks.docx.dump import dump
                 dump(path)
             elif ext in {'mobi', 'azw', 'azw3'}:

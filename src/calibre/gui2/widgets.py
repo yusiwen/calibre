@@ -5,12 +5,12 @@ Miscellaneous widgets used in the GUI
 '''
 import re, os
 
-from PyQt4.Qt import (QIcon, QFont, QLabel, QListWidget, QAction,
+from PyQt5.Qt import (QIcon, QFont, QLabel, QListWidget, QAction,
         QListWidgetItem, QTextCharFormat, QApplication, QSyntaxHighlighter,
         QCursor, QColor, QWidget, QPixmap, QSplitterHandle, QToolButton,
-        QVariant, Qt, SIGNAL, pyqtSignal, QRegExp, QSize, QSplitter, QPainter,
+        Qt, pyqtSignal, QRegExp, QSize, QSplitter, QPainter,
         QLineEdit, QComboBox, QPen, QGraphicsScene, QMenu, QStringListModel,
-        QCompleter, QStringList, QTimer, QRect, QGraphicsView, QByteArray)
+        QCompleter, QTimer, QRect, QGraphicsView)
 
 from calibre.gui2 import (error_dialog, pixmap_to_data, gprefs,
         warning_dialog)
@@ -65,12 +65,13 @@ class FilenamePattern(QWidget, Ui_Form):  # {{{
         QWidget.__init__(self, parent)
         self.setupUi(self)
 
-        self.connect(self.test_button, SIGNAL('clicked()'), self.do_test)
-        self.connect(self.re.lineEdit(), SIGNAL('returnPressed()'), self.do_test)
+        self.test_button.clicked.connect(self.do_test)
+        self.re.lineEdit().returnPressed[()].connect(self.do_test)
+        self.filename.returnPressed[()].connect(self.do_test)
         self.re.lineEdit().textChanged.connect(lambda x: self.changed_signal.emit())
 
     def initialize(self, defaults=False):
-        # Get all itmes in the combobox. If we are resting
+        # Get all items in the combobox. If we are reseting
         # to defaults we don't want to lose what the user
         # has added.
         val_hist = [unicode(self.re.lineEdit().text())] + [unicode(self.re.itemText(i)) for i in xrange(self.re.count())]
@@ -94,6 +95,7 @@ class FilenamePattern(QWidget, Ui_Form):  # {{{
         self.re.setCurrentIndex(0)
 
     def do_test(self):
+        from calibre.ebooks.metadata import authors_to_string
         from calibre.ebooks.metadata.meta import metadata_from_filename
         fname = unicode(self.filename.text())
         ext = os.path.splitext(fname)[1][1:].lower()
@@ -115,7 +117,7 @@ class FilenamePattern(QWidget, Ui_Form):  # {{{
         else:
             self.title.setText(_('No match'))
         if mi.authors:
-            self.authors.setText(', '.join(mi.authors))
+            self.authors.setText(authors_to_string(mi.authors))
         else:
             self.authors.setText(_('No match'))
 
@@ -131,11 +133,16 @@ class FilenamePattern(QWidget, Ui_Form):  # {{{
 
         if mi.publisher:
             self.publisher.setText(mi.publisher)
+        else:
+            self.publisher.setText(_('No match'))
 
         if mi.pubdate:
             self.pubdate.setText(mi.pubdate.strftime('%Y-%m-%d'))
+        else:
+            self.pubdate.setText(_('No match'))
 
         self.isbn.setText(_('No match') if mi.isbn is None else str(mi.isbn))
+        self.comments.setText(mi.comments if mi.comments else _('No match'))
 
     def pattern(self):
         pat = unicode(self.re.lineEdit().text())
@@ -147,7 +154,7 @@ class FilenamePattern(QWidget, Ui_Form):  # {{{
 
         history = []
         history_pats = [unicode(self.re.lineEdit().text())] + [unicode(self.re.itemText(i)) for i in xrange(self.re.count())]
-        for p in history_pats[:14]:
+        for p in history_pats[:24]:
             # Ensure we don't have duplicate items.
             if p and p not in history:
                 history.append(p)
@@ -428,23 +435,26 @@ class LineEditECM(object):  # {{{
         action_title_case = case_menu.addAction(_('Title Case'))
         action_capitalize = case_menu.addAction(_('Capitalize'))
 
-        self.connect(action_upper_case, SIGNAL('triggered()'), self.upper_case)
-        self.connect(action_lower_case, SIGNAL('triggered()'), self.lower_case)
-        self.connect(action_swap_case, SIGNAL('triggered()'), self.swap_case)
-        self.connect(action_title_case, SIGNAL('triggered()'), self.title_case)
-        self.connect(action_capitalize, SIGNAL('triggered()'), self.capitalize)
+        action_upper_case.triggered.connect(self.upper_case)
+        action_lower_case.triggered.connect(self.lower_case)
+        action_swap_case.triggered.connect(self.swap_case)
+        action_title_case.triggered.connect(self.title_case)
+        action_capitalize.triggered.connect(self.capitalize)
 
         menu.addMenu(case_menu)
         menu.exec_(event.globalPos())
 
     def upper_case(self):
-        self.setText(unicode(self.text()).upper())
+        from calibre.utils.icu import upper
+        self.setText(upper(unicode(self.text())))
 
     def lower_case(self):
-        self.setText(unicode(self.text()).lower())
+        from calibre.utils.icu import lower
+        self.setText(lower(unicode(self.text())))
 
     def swap_case(self):
-        self.setText(unicode(self.text()).swapcase())
+        from calibre.utils.icu import swapcase
+        self.setText(swapcase(unicode(self.text())))
 
     def title_case(self):
         from calibre.utils.titlecase import titlecase
@@ -506,16 +516,12 @@ class CompleteLineEdit(EnLineEdit):  # {{{
         self.separator = sep
         self.space_before_sep = space_before_sep
 
-        self.connect(self, SIGNAL('textChanged(QString)'), self.text_changed)
+        self.textChanged.connect(self.text_changed)
 
         self.completer = ItemsCompleter(self, complete_items)
         self.completer.setCaseSensitivity(Qt.CaseInsensitive)
 
-        self.connect(self,
-            SIGNAL('text_changed(PyQt_PyObject, PyQt_PyObject)'),
-            self.completer.update)
-        self.connect(self.completer, SIGNAL('activated(QString)'),
-            self.complete_text)
+        self.completer.activated[str].connect(self.complete_text)
 
         self.completer.setWidget(self)
 
@@ -539,9 +545,7 @@ class CompleteLineEdit(EnLineEdit):  # {{{
             if t1 != '':
                 text_items.append(t)
         text_items = list(set(text_items))
-
-        self.emit(SIGNAL('text_changed(PyQt_PyObject, PyQt_PyObject)'),
-            text_items, prefix)
+        self.completer.update(text_items, prefix)
 
     def complete_text(self, text):
         cursor_pos = self.cursorPosition()
@@ -570,7 +574,7 @@ class EnComboBox(QComboBox):  # {{{
     def __init__(self, *args):
         QComboBox.__init__(self, *args)
         self.setLineEdit(EnLineEdit(self))
-        self.setAutoCompletionCaseSensitivity(Qt.CaseInsensitive)
+        self.completer().setCaseSensitivity(Qt.CaseInsensitive)
         self.setMinimumContentsLength(20)
 
     def text(self):
@@ -621,7 +625,7 @@ class HistoryLineEdit(QComboBox):  # {{{
 
     def initialize(self, name):
         self._name = name
-        self.addItems(QStringList(history.get(self.store_name, [])))
+        self.addItems(history.get(self.store_name, []))
         self.setEditText('')
         self.lineEdit().editingFinished.connect(self.save_history)
 
@@ -733,7 +737,6 @@ class PythonHighlighter(QSyntaxHighlighter):  # {{{
 
     Rules = []
     Formats = {}
-    Config = {}
 
     KEYWORDS = ["and", "as", "assert", "break", "class", "continue", "def",
         "del", "elif", "else", "except", "exec", "finally", "for", "from",
@@ -756,8 +759,6 @@ class PythonHighlighter(QSyntaxHighlighter):  # {{{
 
     def __init__(self, parent=None):
         super(PythonHighlighter, self).__init__(parent)
-        if not self.Config:
-            self.loadConfig()
 
         self.initializeFormats()
 
@@ -776,7 +777,7 @@ class PythonHighlighter(QSyntaxHighlighter):  # {{{
                 r"|\b[+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\b"),
                 "number"))
         PythonHighlighter.Rules.append((QRegExp(
-                r"\bPyQt4\b|\bQt?[A-Z][a-z]\w+\b"), "pyqt"))
+                r"\bPyQt5\b|\bQt?[A-Z][a-z]\w+\b"), "pyqt"))
         PythonHighlighter.Rules.append((QRegExp(r"\b@\w+\b"), "decorator"))
         stringRe = QRegExp(r"""(?:'[^']*'|"[^"]*")""")
         stringRe.setMinimal(True)
@@ -788,31 +789,12 @@ class PythonHighlighter(QSyntaxHighlighter):  # {{{
         self.tripleDoubleRe = QRegExp(r'''"""(?!')''')
 
     @classmethod
-    def loadConfig(cls):
-        Config = cls.Config
-
-        for name in ("window", "shell"):
-            Config["%swidth" % name] = QVariant(QApplication.desktop().availableGeometry().width() / 2).toInt()[0]
-            Config["%sheight" % name] = QVariant(QApplication.desktop().availableGeometry().height() / 2).toInt()[0]
-            Config["%sy" % name] = QVariant(0).toInt()[0]
-        Config["toolbars"] = QByteArray(b'')
-        Config["splitter"] = QByteArray(b'')
-        Config["shellx"] = QVariant(0).toInt()[0]
-        Config["windowx"] = QVariant(QApplication.desktop().availableGeometry().width() / 2).toInt()[0]
-        Config["remembergeometry"] = QVariant(True).toBool()
-        Config["startwithshell"] = QVariant(True).toBool()
-        Config["showwindowinfo"] = QVariant(True).toBool()
-        Config["backupsuffix"] = QVariant(".bak").toString()
-        Config["cwd"]  = QVariant(".").toString()
-        Config["tooltipsize"] = QVariant(150).toInt()[0]
-        Config["maxlinestoscan"] = QVariant(5000).toInt()[0]
-        Config["pythondocpath"] = QVariant("http://docs.python.org").toString()
-        Config["autohidefinddialog"] = QVariant(True).toBool()
-        Config["findcasesensitive"] = QVariant(False).toBool()
-        Config["findwholewords"] = QVariant(False).toBool()
-        Config["tabwidth"] = QVariant(4).toInt()[0]
-        Config["fontfamily"] = QVariant("monospace").toString()
-        Config["fontsize"] = QVariant(10).toInt()[0]
+    def initializeFormats(cls):
+        if cls.Formats:
+            return
+        baseFormat = QTextCharFormat()
+        baseFormat.setFontFamily('monospace')
+        baseFormat.setFontPointSize(11)
         for name, color, bold, italic in (
                 ("normal", "#000000", False, False),
                 ("keyword", "#000080", True, False),
@@ -824,42 +806,30 @@ class PythonHighlighter(QSyntaxHighlighter):  # {{{
                 ("number", "#924900", False, False),
                 ("error", "#FF0000", False, False),
                 ("pyqt", "#50621A", False, False)):
-            Config["%sfontcolor" % name] = QVariant(color).toString()
-            Config["%sfontbold" % name] = QVariant(bold).toBool()
-            Config["%sfontitalic" % name] = QVariant(italic).toBool()
 
-    @classmethod
-    def initializeFormats(cls):
-        Config = cls.Config
-        baseFormat = QTextCharFormat()
-        baseFormat.setFontFamily(Config["fontfamily"])
-        baseFormat.setFontPointSize(Config["fontsize"])
-        for name in ("normal", "keyword", "builtin", "constant",
-                "decorator", "comment", "string", "number", "error",
-                "pyqt"):
             format = QTextCharFormat(baseFormat)
-            format.setForeground(QColor(Config["%sfontcolor" % name]))
-            if Config["%sfontbold" % name]:
+            format.setForeground(QColor(color))
+            if bold:
                 format.setFontWeight(QFont.Bold)
-            format.setFontItalic(Config["%sfontitalic" % name])
-            PythonHighlighter.Formats[name] = format
+            format.setFontItalic(italic)
+            cls.Formats[name] = format
 
     def highlightBlock(self, text):
         NORMAL, TRIPLESINGLE, TRIPLEDOUBLE, ERROR = range(4)
 
-        textLength = text.length()
+        textLength = len(text)
         prevState = self.previousBlockState()
 
         self.setFormat(0, textLength,
                        PythonHighlighter.Formats["normal"])
 
-        if text.startsWith("Traceback") or text.startsWith("Error: "):
+        if text.startswith(u"Traceback") or text.startswith(u"Error: "):
             self.setCurrentBlockState(ERROR)
             self.setFormat(0, textLength,
                            PythonHighlighter.Formats["error"])
             return
         if prevState == ERROR and \
-           not (text.startsWith('>>>') or text.startsWith("#")):
+           not (text.startswith(u'>>>') or text.startswith(u"#")):
             self.setCurrentBlockState(ERROR)
             self.setFormat(0, textLength,
                            PythonHighlighter.Formats["error"])
@@ -876,21 +846,21 @@ class PythonHighlighter(QSyntaxHighlighter):  # {{{
         # Slow but good quality highlighting for comments. For more
         # speed, comment this out and add the following to __init__:
         # PythonHighlighter.Rules.append((QRegExp(r"#.*"), "comment"))
-        if text.isEmpty():
+        if not text:
             pass
-        elif text[0] == "#":
-            self.setFormat(0, text.length(),
+        elif text[0] == u"#":
+            self.setFormat(0, len(text),
                            PythonHighlighter.Formats["comment"])
         else:
             stack = []
             for i, c in enumerate(text):
-                if c in ('"', "'"):
+                if c in (u'"', u"'"):
                     if stack and stack[-1] == c:
                         stack.pop()
                     else:
                         stack.append(c)
-                elif c == "#" and len(stack) == 0:
-                    self.setFormat(i, text.length(),
+                elif c == u"#" and len(stack) == 0:
+                    self.setFormat(i, len(text),
                                    PythonHighlighter.Formats["comment"])
                     break
 
@@ -905,13 +875,13 @@ class PythonHighlighter(QSyntaxHighlighter):  # {{{
                           TRIPLEDOUBLE)):
             if self.previousBlockState() == state:
                 if i == -1:
-                    i = text.length()
+                    i = len(text)
                     self.setCurrentBlockState(state)
                 self.setFormat(0, i + 3,
                                PythonHighlighter.Formats["string"])
             elif i > -1:
                 self.setCurrentBlockState(state)
-                self.setFormat(i, text.length(),
+                self.setFormat(i, len(text),
                                PythonHighlighter.Formats["string"])
 
     def rehighlight(self):
@@ -1158,4 +1128,12 @@ class Splitter(QSplitter):
 
 # }}}
 
-
+if __name__ == '__main__':
+    from PyQt5.Qt import QTextEdit
+    app = QApplication([])
+    w = QTextEdit()
+    s = PythonHighlighter(w)
+    # w.setSyntaxHighlighter(s)
+    w.setText(open(__file__, 'rb').read().decode('utf-8'))
+    w.show()
+    app.exec_()

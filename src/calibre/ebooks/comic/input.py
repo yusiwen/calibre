@@ -13,6 +13,7 @@ from Queue import Empty
 from calibre import extract, prints, walk
 from calibre.constants import filesystem_encoding
 from calibre.ptempfile import PersistentTemporaryDirectory
+from calibre.utils.icu import numeric_sort_key
 from calibre.utils.ipc.server import Server
 from calibre.utils.ipc.job import ParallelJob
 
@@ -45,28 +46,34 @@ def find_pages(dir, sort_on_mtime=False, verbose=False):
     :param sort_on_mtime: If True sort pages based on their last modified time.
                           Otherwise, sort alphabetically.
     '''
-    extensions = ['jpeg', 'jpg', 'gif', 'png']
+    extensions = {'jpeg', 'jpg', 'gif', 'png', 'webp'}
     pages = []
     for datum in os.walk(dir):
         for name in datum[-1]:
-            path = os.path.join(datum[0], name)
-            if '__MACOSX' in path: continue
+            path = os.path.abspath(os.path.join(datum[0], name))
+            if '__MACOSX' in path:
+                continue
             for ext in extensions:
                 if path.lower().endswith('.'+ext):
                     pages.append(path)
                     break
+    sep_counts = {x.replace(os.sep, '/').count('/') for x in pages}
+    # Use the full path to sort unless the files are in folders of different
+    # levels, in which case simply use the filenames.
+    basename = os.path.basename if len(sep_counts) > 1 else lambda x: x
     if sort_on_mtime:
-        comparator = lambda x, y : cmp(os.stat(x).st_mtime, os.stat(y).st_mtime)
+        key = lambda x:os.stat(x).st_mtime
     else:
-        comparator = lambda x, y : cmp(os.path.basename(x), os.path.basename(y))
+        key = lambda x:numeric_sort_key(basename(x))
 
-    pages.sort(cmp=comparator)
+    pages.sort(key=key)
     if verbose:
         prints('Found comic pages...')
-        prints('\t'+'\n\t'.join([os.path.basename(p) for p in pages]))
+        prints('\t'+'\n\t'.join([os.path.relpath(p, dir) for p in pages]))
     return pages
 
-class PageProcessor(list): # {{{
+class PageProcessor(list):  # {{{
+
     '''
     Contains the actual image rendering logic. See :method:`render` and
     :method:`process_pages`.
@@ -81,13 +88,12 @@ class PageProcessor(list): # {{{
         self.rotate       = False
         self.render()
 
-
     def render(self):
         from calibre.utils.magick import Image
         img = Image()
         img.open(self.path_to_page)
         width, height = img.size
-        if self.num == 0: # First image so create a thumbnail from it
+        if self.num == 0:  # First image so create a thumbnail from it
             thumb = img.clone
             thumb.thumbnail(60, 80)
             thumb.save(os.path.join(self.dest, 'thumbnail.png'))
@@ -113,10 +119,10 @@ class PageProcessor(list): # {{{
             if self.rotate:
                 wand.rotate(pw, -90)
 
-            # 25 percent fuzzy trim?
             if not self.opts.disable_trim:
                 wand.trim(25*65535/100)
-            wand.set_page(0, 0, 0, 0)   #Clear page after trim, like a "+repage"
+
+            wand.set_page(0, 0, 0, 0)  # Clear page after trim, like a "+repage"
             # Do the Photoshop "Auto Levels" equivalent
             if not self.opts.dont_normalize:
                 wand.normalize()
@@ -129,7 +135,7 @@ class PageProcessor(list): # {{{
                     SCRWIDTH, SCRHEIGHT = map(int, [x.strip() for x in
                         self.opts.comic_image_size.split('x')])
             except:
-                pass # Ignore
+                pass  # Ignore
 
             if self.opts.keep_aspect_ratio:
                 # Preserve the aspect ratio by adding border
@@ -228,7 +234,7 @@ class Progress(object):
 
     def __call__(self, percent, msg=''):
         self.done += 1
-        #msg = msg%os.path.basename(job.args[0])
+        # msg = msg%os.path.basename(job.args[0])
         self.update(float(self.done)/self.total, msg)
 
 def process_pages(pages, opts, update, tdir):

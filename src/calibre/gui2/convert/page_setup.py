@@ -6,11 +6,10 @@ __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-from PyQt4.Qt import Qt, QAbstractListModel, QVariant, SIGNAL
+from PyQt5.Qt import Qt, QAbstractListModel, QModelIndex
 
 from calibre.gui2.convert.page_setup_ui import Ui_Form
 from calibre.gui2.convert import Widget
-from calibre.gui2 import NONE
 from calibre.customize.ui import input_profiles, output_profiles
 
 class ProfileModel(QAbstractListModel):
@@ -25,7 +24,7 @@ class ProfileModel(QAbstractListModel):
     def data(self, index, role):
         profile = self.profiles[index.row()]
         if role == Qt.DisplayRole:
-            return QVariant(profile.name)
+            return (profile.name)
         if role in (Qt.ToolTipRole, Qt.StatusTipRole, Qt.WhatsThisRole):
             w, h = profile.screen_size
             if w >= 10000:
@@ -33,8 +32,8 @@ class ProfileModel(QAbstractListModel):
             else:
                 ss = _('%(width)d x %(height)d pixels') % dict(width=w, height=h)
             ss = _('Screen size: %s') % ss
-            return QVariant('%s [%s]' % (profile.description, ss))
-        return NONE
+            return ('%s [%s]' % (profile.description, ss))
+        return None
 
 class PageSetupWidget(Widget, Ui_Form):
 
@@ -59,7 +58,7 @@ class PageSetupWidget(Widget, Ui_Form):
 
         for x in (self.opt_input_profile, self.opt_output_profile):
             x.setMouseTracking(True)
-            self.connect(x, SIGNAL('entered(QModelIndex)'), self.show_desc)
+            x.entered[(QModelIndex)].connect(self.show_desc)
         self.initialize_options(get_option, get_help, db, book_id)
         it = unicode(self.opt_input_profile.toolTip())
         self.opt_input_profile.setToolTip('<p>'+it.replace('t.','t.\n<br>'))
@@ -67,7 +66,7 @@ class PageSetupWidget(Widget, Ui_Form):
         self.opt_output_profile.setToolTip('<p>'+it.replace('t.','ce.\n<br>'))
 
     def show_desc(self, index):
-        desc = index.model().data(index, Qt.StatusTipRole).toString()
+        desc = unicode(index.model().data(index, Qt.StatusTipRole) or '')
         self.profile_description.setText(desc)
 
     def connect_gui_obj_handler(self, g, slot):

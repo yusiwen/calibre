@@ -10,7 +10,7 @@ from functools import partial
 from future_builtins import map
 from collections import OrderedDict
 
-from PyQt4.Qt import (
+from PyQt5.Qt import (
     QTableView, Qt, QAbstractItemView, QMenu, pyqtSignal, QFont, QModelIndex,
     QIcon, QItemSelection, QMimeData, QDrag, QStyle, QPoint, QUrl, QHeaderView,
     QStyleOptionHeader)
@@ -51,7 +51,7 @@ class HeaderView(QHeaderView):  # {{{
         opt.orientation = self.orientation()
         opt.textAlignment = Qt.AlignHCenter | Qt.AlignVCenter
         model = self.parent().model()
-        opt.text = model.headerData(logical_index, opt.orientation, Qt.DisplayRole).toString()
+        opt.text = unicode(model.headerData(logical_index, opt.orientation, Qt.DisplayRole) or '')
         if self.isSortIndicatorShown() and self.sortIndicatorSection() == logical_index:
             opt.sortIndicator = QStyleOptionHeader.SortDown if self.sortIndicatorOrder() == Qt.AscendingOrder else QStyleOptionHeader.SortUp
         opt.text = opt.fontMetrics.elidedText(opt.text, Qt.ElideRight, rect.width() - 4)
@@ -163,6 +163,7 @@ class BooksView(QTableView):  # {{{
 
     def __init__(self, parent, modelcls=BooksModel, use_edit_metadata_dialog=True):
         QTableView.__init__(self, parent)
+        self.default_row_height = self.verticalHeader().defaultSectionSize()
         self.gui = parent
         self.setProperty('highlight_current_item', 150)
         self.row_sizing_done = False
@@ -228,20 +229,20 @@ class BooksView(QTableView):  # {{{
         self.setHorizontalHeader(self.column_header)
         self.column_header.sortIndicatorChanged.disconnect()
         self.column_header.sortIndicatorChanged.connect(self.user_sort_requested)
-        self.column_header.setMovable(True)
-        self.column_header.setClickable(True)
+        self.column_header.setSectionsMovable(True)
+        self.column_header.setSectionsClickable(True)
         self.column_header.sectionMoved.connect(self.save_state)
         self.column_header.setContextMenuPolicy(Qt.CustomContextMenu)
         self.column_header.customContextMenuRequested.connect(self.show_column_header_context_menu)
         self.column_header.sectionResized.connect(self.column_resized, Qt.QueuedConnection)
         self.row_header = HeaderView(Qt.Vertical, self)
-        self.row_header.setResizeMode(self.row_header.Fixed)
+        self.row_header.setSectionResizeMode(self.row_header.Fixed)
         self.setVerticalHeader(self.row_header)
         # }}}
 
         self._model.database_changed.connect(self.database_changed)
         hv = self.verticalHeader()
-        hv.setClickable(True)
+        hv.setSectionsClickable(True)
         hv.setCursor(Qt.PointingHandCursor)
         self.selected_ids = []
         self._model.about_to_be_sorted.connect(self.about_to_be_sorted)
@@ -294,7 +295,7 @@ class BooksView(QTableView):  # {{{
         if idx > -1 and idx < len(self.column_map):
             col = self.column_map[idx]
             name = unicode(self.model().headerData(idx, Qt.Horizontal,
-                    Qt.DisplayRole).toString())
+                    Qt.DisplayRole) or '')
             self.column_header_context_menu = QMenu(self)
             if col != 'ondevice':
                 self.column_header_context_menu.addAction(_('Hide column %s') %
@@ -352,7 +353,7 @@ class BooksView(QTableView):  # {{{
                 for col in hidden_cols:
                     hidx = self.column_map.index(col)
                     name = unicode(self.model().headerData(hidx, Qt.Horizontal,
-                            Qt.DisplayRole).toString())
+                            Qt.DisplayRole) or '')
                     m.addAction(name,
                         partial(self.column_header_context_handler,
                         action='show', column=col))
@@ -455,9 +456,8 @@ class BooksView(QTableView):  # {{{
 
     # Ondevice column {{{
     def set_ondevice_column_visibility(self):
-        m  = self._model
-        self.column_header.setSectionHidden(m.column_map.index('ondevice'),
-                not m.device_connected)
+        col, h = self._model.column_map.index('ondevice'), self.column_header
+        h.setSectionHidden(col, not self._model.device_connected)
 
     def set_device_connected(self, is_connected):
         self._model.set_device_connected(is_connected)
@@ -474,7 +474,7 @@ class BooksView(QTableView):  # {{{
         state['last_modified_injected'] = True
         state['languages_injected'] = True
         state['sort_history'] = \
-            self.cleanup_sort_history(self.model().sort_history)
+            self.cleanup_sort_history(self.model().sort_history, ignore_column_map=self.is_library_view)
         state['column_positions'] = {}
         state['column_sizes'] = {}
         state['column_alignment'] = self._model.alignment_map
@@ -499,11 +499,11 @@ class BooksView(QTableView):  # {{{
 
     def cleanup_sort_history(self, sort_history, ignore_column_map=False):
         history = []
+
         for col, order in sort_history:
             if not isinstance(order, bool):
                 continue
-            if col == 'date':
-                col = 'timestamp'
+            col = {'date':'timestamp', 'sort':'title'}.get(col, col)
             if ignore_column_map or col in self.column_map:
                 if (not history or history[-1][0] != col):
                     history.append([col, order])
@@ -512,9 +512,14 @@ class BooksView(QTableView):  # {{{
     def apply_sort_history(self, saved_history, max_sort_levels=3):
         if not saved_history:
             return
-        for col, order in reversed(self.cleanup_sort_history(
-                saved_history)[:max_sort_levels]):
-            self.sort_by_column_and_order(self.column_map.index(col), order)
+        if self.is_library_view:
+            for col, order in reversed(self.cleanup_sort_history(
+                    saved_history, ignore_column_map=True)[:max_sort_levels]):
+                self.sort_by_named_field(col, order)
+        else:
+            for col, order in reversed(self.cleanup_sort_history(
+                    saved_history)[:max_sort_levels]):
+                self.sort_by_column_and_order(self.column_map.index(col), order)
 
     def apply_state(self, state, max_sort_levels=3):
         h = self.column_header
@@ -555,6 +560,17 @@ class BooksView(QTableView):  # {{{
             if not h.isSectionHidden(i) and h.sectionSize(i) < 3:
                 sz = h.sectionSizeHint(i)
                 h.resizeSection(i, sz)
+        # Because of a bug in Qt 5 we have to ensure that the header is actually
+        # relaid out by changing this value, without this sometimes the ghost
+        # of the ondevice column remains visible when changing libraries
+        try:
+            col = self._model.column_map.index('ondevice')
+        except ValueError:
+            pass  # DeviceBooksView
+        else:
+            val = h.isSectionHidden(col)
+            h.setSectionHidden(col, not val)
+            h.setSectionHidden(col, val)
 
     def get_default_state(self):
         old_state = {
@@ -653,9 +669,8 @@ class BooksView(QTableView):  # {{{
     def do_row_sizing(self):
         # Resize all rows to have the correct height
         if not self.row_sizing_done and self.model().rowCount(QModelIndex()) > 0:
-            self.resizeRowToContents(0)
-            self.verticalHeader().setDefaultSectionSize(self.rowHeight(0) +
-                                            gprefs['extra_row_spacing'])
+            vh = self.verticalHeader()
+            vh.setDefaultSectionSize(max(vh.minimumSectionSize(), self.default_row_height + gprefs['book_list_extra_row_spacing']))
             self._model.set_row_height(self.rowHeight(0))
             self.row_sizing_done = True
 
@@ -757,7 +772,7 @@ class BooksView(QTableView):  # {{{
 
         self.restore_state()
         self.set_ondevice_column_visibility()
-        #}}}
+        # }}}
 
     # Context Menu {{{
     def set_context_menu(self, menu, edit_collections_action):
@@ -851,13 +866,47 @@ class BooksView(QTableView):  # {{{
                     sm = self.selectionModel()
                     sm.select(index, sm.ClearAndSelect|sm.Rows)
 
-    def keyPressEvent(self, ev):
-        val = self.horizontalScrollBar().value()
-        ret = super(BooksView, self).keyPressEvent(ev)
-        if ev.isAccepted() and ev.key() in (Qt.Key_Home, Qt.Key_End
-                                            ) and ev.modifiers() & Qt.ControlModifier:
-            self.horizontalScrollBar().setValue(val)
-        return ret
+    def row_at_top(self):
+        pos = 0
+        while pos < 100:
+            ans = self.rowAt(pos)
+            if ans > -1:
+                return ans
+            pos += 5
+
+    def row_at_bottom(self):
+        pos = self.viewport().height()
+        limit = pos - 100
+        while pos > limit:
+            ans = self.rowAt(pos)
+            if ans > -1:
+                return ans
+            pos -= 5
+
+    def moveCursor(self, action, modifiers):
+        orig = self.currentIndex()
+        index = QTableView.moveCursor(self, action, modifiers)
+        if action == QTableView.MovePageDown:
+            moved = index.row() - orig.row()
+            try:
+                rows = self.row_at_bottom() - self.row_at_top()
+            except TypeError:
+                rows = moved
+            if moved > rows:
+                index = self.model().index(orig.row() + rows, index.column())
+        elif action == QTableView.MovePageUp:
+            moved = orig.row() - index.row()
+            try:
+                rows = self.row_at_bottom() - self.row_at_top()
+            except TypeError:
+                rows = moved
+            if moved > rows:
+                index = self.model().index(orig.row() - rows, index.column())
+        elif action == QTableView.MoveHome and modifiers & Qt.ControlModifier:
+            return self.model().index(0, orig.column())
+        elif action == QTableView.MoveEnd and modifiers & Qt.ControlModifier:
+            return self.model().index(self.model().rowCount(QModelIndex()) - 1, orig.column())
+        return index
 
     def ids_to_rows(self, ids):
         row_map = OrderedDict()

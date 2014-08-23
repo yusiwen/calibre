@@ -4,12 +4,11 @@ __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 import os, sys, Queue, threading, glob
 from threading import RLock
 from urllib import unquote
-from PyQt4.Qt import (QVariant, QFileInfo, QObject, SIGNAL, QBuffer, Qt,
-                    QByteArray, QTranslator, QCoreApplication, QThread,
-                    QEvent, QTimer, pyqtSignal, QDateTime, QDesktopServices,
-                    QFileDialog, QFileIconProvider, QSettings, QColor,
-                    QIcon, QApplication, QDialog, QUrl, QFont, QPalette,
-                    QFontDatabase)
+from PyQt5.Qt import (
+    QFileInfo, QObject, QBuffer, Qt, QStyle, QByteArray, QTranslator,
+    QCoreApplication, QThread, QEvent, QTimer, pyqtSignal, QDateTime,
+    QDesktopServices, QFileDialog, QFileIconProvider, QSettings, QIcon,
+    QApplication, QDialog, QUrl, QFont, QFontDatabase, QLocale, QFontInfo)
 
 ORG_NAME = 'KovidsBrain'
 APP_UID  = 'libprs500'
@@ -19,6 +18,8 @@ from calibre.constants import (islinux, iswindows, isbsd, isfrozen, isosx,
 from calibre.utils.config import Config, ConfigProxy, dynamic, JSONConfig
 from calibre.ebooks.metadata import MetaInformation
 from calibre.utils.date import UNDEFINED_DATE
+from calibre.utils.localization import get_lang
+from calibre.utils.filenames import expanduser
 
 # Setup gprefs {{{
 gprefs = JSONConfig('gui')
@@ -38,7 +39,7 @@ if isosx:
     defs['action-layout-toolbar'] = (
         'Add Books', 'Edit Metadata', None, 'Convert Books', 'View', None,
         'Choose Library', 'Donate', None, 'Fetch News', 'Store', 'Save To Disk',
-        'Connect Share', None, 'Remove Books',
+        'Connect Share', None, 'Remove Books', 'Tweak ePub'
         )
     defs['action-layout-toolbar-device'] = (
         'Add Books', 'Edit Metadata', None, 'Convert Books', 'View',
@@ -53,7 +54,7 @@ else:
         'Add Books', 'Edit Metadata', None, 'Convert Books', 'View', None,
         'Store', 'Donate', 'Fetch News', 'Help', None,
         'Remove Books', 'Choose Library', 'Save To Disk',
-        'Connect Share', 'Preferences',
+        'Connect Share', 'Tweak ePub', 'Preferences',
         )
     defs['action-layout-toolbar-device'] = (
         'Add Books', 'Edit Metadata', None, 'Convert Books', 'View',
@@ -102,6 +103,7 @@ defs['auto_add_path'] = None
 defs['auto_add_check_for_duplicates'] = False
 defs['blocked_auto_formats'] = []
 defs['auto_add_auto_convert'] = True
+defs['auto_add_everything'] = False
 defs['ui_style'] = 'calibre' if iswindows or isosx else 'system'
 defs['tag_browser_old_look'] = False
 defs['book_list_tooltips'] = True
@@ -109,7 +111,7 @@ defs['bd_show_cover'] = True
 defs['bd_overlay_cover_size'] = False
 defs['tags_browser_category_icons'] = {}
 defs['cover_browser_reflections'] = True
-defs['extra_row_spacing'] = 0
+defs['book_list_extra_row_spacing'] = 0
 defs['refresh_book_list_on_bulk_edit'] = True
 defs['cover_grid_width'] = 0
 defs['cover_grid_height'] = 0
@@ -120,10 +122,17 @@ defs['cover_grid_disk_cache_size'] = 2500
 defs['cover_grid_show_title'] = False
 defs['cover_grid_texture'] = None
 defs['show_vl_tabs'] = False
+defs['show_highlight_toggle_button'] = False
+defs['add_comments_to_email'] = False
+defs['cb_preserve_aspect_ratio'] = False
+defs['show_rating_in_cover_browser'] = True
+defs['gpm_template_editor_font_size'] = 10
+defs['show_emblems'] = False
+defs['emblem_size'] = 32
+defs['emblem_position'] = 'left'
 del defs
 # }}}
 
-NONE = QVariant()  # : Null value to return from the data function of item models
 UNDEFINED_QDATETIME = QDateTime(UNDEFINED_DATE)
 
 ALL_COLUMNS = ['title', 'ondevice', 'authors', 'size', 'timestamp', 'rating', 'publisher',
@@ -136,7 +145,7 @@ def _config():  # {{{
     c.add_opt('confirm_delete', default=False,
               help=_('Confirm before deleting'))
     c.add_opt('main_window_geometry', default=None,
-              help=_('Main window geometry'))  # value QVariant.toByteArray
+              help=_('Main window geometry'))
     c.add_opt('new_version_notification', default=True,
               help=_('Notify when a new version is available'))
     c.add_opt('use_roman_numerals_for_series_number', default=True,
@@ -153,7 +162,7 @@ def _config():  # {{{
               help=_('Options for the LRF ebook viewer'))
     c.add_opt('internally_viewed_formats', default=['LRF', 'EPUB', 'LIT',
         'MOBI', 'PRC', 'POBI', 'AZW', 'AZW3', 'HTML', 'FB2', 'PDB', 'RB',
-        'SNB', 'HTMLZ'], help=_(
+        'SNB', 'HTMLZ', 'KEPUB'], help=_(
             'Formats that are viewed using the internal viewer'))
     c.add_opt('column_map', default=ALL_COLUMNS,
               help=_('Columns to be displayed in the book list'))
@@ -244,7 +253,7 @@ if iswindows:
 
 def available_heights():
     desktop  = QCoreApplication.instance().desktop()
-    return map(lambda x: x.height(), map(desktop.availableGeometry, range(desktop.numScreens())))
+    return map(lambda x: x.height(), map(desktop.availableGeometry, range(desktop.screenCount())))
 
 def available_height():
     desktop  = QCoreApplication.instance().desktop()
@@ -315,7 +324,11 @@ def question_dialog(parent, title, msg, det_msg='', show_copy_button=False,
         skip_dialog_name=None, skip_dialog_msg=_('Show this confirmation again'),
         skip_dialog_skipped_value=True, skip_dialog_skip_precheck=True,
         # Override icon (QIcon to be used as the icon for this dialog)
-        override_icon=None):
+        override_icon=None,
+        # Change the text/icons of the yes and no buttons.
+        # The icons must be QIcon objects or strings for I()
+        yes_text=None, no_text=None, yes_icon=None, no_icon=None,
+    ):
     from calibre.gui2.dialogs.message_box import MessageBox
 
     auto_skip = set(gprefs.get('questions_to_auto_skip', []))
@@ -323,8 +336,9 @@ def question_dialog(parent, title, msg, det_msg='', show_copy_button=False,
         return bool(skip_dialog_skipped_value)
 
     d = MessageBox(MessageBox.QUESTION, title, msg, det_msg, parent=parent,
-                    show_copy_button=show_copy_button, default_yes=default_yes,
-                    q_icon=override_icon)
+                   show_copy_button=show_copy_button, default_yes=default_yes,
+                   q_icon=override_icon, yes_text=yes_text, no_text=no_text,
+                   yes_icon=yes_icon, no_icon=no_icon)
 
     if skip_dialog_name is not None and skip_dialog_msg:
         tc = d.toggle_checkbox
@@ -438,20 +452,21 @@ class GetMetadata(QObject):
     GUI thread. Must be instantiated in the GUI thread.
     '''
 
+    edispatch = pyqtSignal(object, object, object)
+    idispatch = pyqtSignal(object, object, object)
+    metadataf = pyqtSignal(object, object)
+    metadata  = pyqtSignal(object, object)
+
     def __init__(self):
         QObject.__init__(self)
-        self.connect(self, SIGNAL('edispatch(PyQt_PyObject, PyQt_PyObject, PyQt_PyObject)'),
-                     self._get_metadata, Qt.QueuedConnection)
-        self.connect(self, SIGNAL('idispatch(PyQt_PyObject, PyQt_PyObject, PyQt_PyObject)'),
-                     self._from_formats, Qt.QueuedConnection)
+        self.edispatch.connect(self._get_metadata, type=Qt.QueuedConnection)
+        self.idispatch.connect(self._from_formats, type=Qt.QueuedConnection)
 
     def __call__(self, id, *args, **kwargs):
-        self.emit(SIGNAL('edispatch(PyQt_PyObject, PyQt_PyObject, PyQt_PyObject)'),
-                  id, args, kwargs)
+        self.edispatch.emit(id, args, kwargs)
 
     def from_formats(self, id, *args, **kwargs):
-        self.emit(SIGNAL('idispatch(PyQt_PyObject, PyQt_PyObject, PyQt_PyObject)'),
-                  id, args, kwargs)
+        self.idispatch.emit(id, args, kwargs)
 
     def _from_formats(self, id, args, kwargs):
         from calibre.ebooks.metadata.meta import metadata_from_formats
@@ -459,7 +474,7 @@ class GetMetadata(QObject):
             mi = metadata_from_formats(*args, **kwargs)
         except:
             mi = MetaInformation('', [_('Unknown')])
-        self.emit(SIGNAL('metadataf(PyQt_PyObject, PyQt_PyObject)'), id, mi)
+        self.metadataf.emit(id, mi)
 
     def _get_metadata(self, id, args, kwargs):
         from calibre.ebooks.metadata.meta import get_metadata
@@ -467,7 +482,7 @@ class GetMetadata(QObject):
             mi = get_metadata(*args, **kwargs)
         except:
             mi = MetaInformation('', [_('Unknown')])
-        self.emit(SIGNAL('metadata(PyQt_PyObject, PyQt_PyObject)'), id, mi)
+        self.metadata.emit(id, mi)
 
 class FileIconProvider(QFileIconProvider):
 
@@ -519,14 +534,26 @@ class FileIconProvider(QFileIconProvider):
              'xps'     : 'xps',
              'oxps'    : 'xps',
              'docx'    : 'docx',
+             'opml'    : 'opml',
              }
 
     def __init__(self):
         QFileIconProvider.__init__(self)
-        self.icons = {}
-        for key in self.__class__.ICONS.keys():
-            self.icons[key] = I('mimetypes/')+self.__class__.ICONS[key]+'.png'
-        self.icons['calibre'] = I('lt.png')
+        upath, bpath = I('mimetypes'), I('mimetypes', allow_user_override=False)
+        if upath != bpath:
+            # User has chosen to override mimetype icons
+            path_map = {v:I('mimetypes/%s.png' % v) for v in set(self.ICONS.itervalues())}
+            icons = self.ICONS.copy()
+            for uicon in glob.glob(os.path.join(upath, '*.png')):
+                ukey = os.path.basename(uicon).rpartition('.')[0].lower()
+                if ukey not in path_map:
+                    path_map[ukey] = uicon
+                    icons[ukey] = ukey
+        else:
+            path_map = {v:os.path.join(bpath, v + '.png') for v in set(self.ICONS.itervalues())}
+            icons = self.ICONS
+        self.icons = {k:path_map[v] for k, v in icons.iteritems()}
+        self.icons['calibre'] = I('lt.png', allow_user_override=False)
         for i in ('dir', 'default', 'zero'):
             self.icons[i] = QIcon(self.icons[i])
 
@@ -583,6 +610,16 @@ def file_icon_provider():
     initialize_file_icon_provider()
     return _file_icon_provider
 
+def select_initial_dir(q):
+    while q:
+        c = os.path.dirname(q)
+        if c == q:
+            break
+        if os.path.exists(c):
+            return c
+        q = c
+    return expanduser(u'~')
+
 class FileDialog(QObject):
     def __init__(self, title=_('Choose Files'),
                        filters=[],
@@ -591,8 +628,9 @@ class FileDialog(QObject):
                        modal=True,
                        name='',
                        mode=QFileDialog.ExistingFiles,
-                       default_dir='~',
-                       no_save_dir=False
+                       default_dir=u'~',
+                       no_save_dir=False,
+                       combine_file_and_saved_dir=False
                        ):
         QObject.__init__(self)
         ftext = ''
@@ -611,13 +649,26 @@ class FileDialog(QObject):
         self.selected_files = None
         self.fd = None
 
-        if no_save_dir:
-            initial_dir = os.path.expanduser(default_dir)
+        if combine_file_and_saved_dir:
+            bn = os.path.basename(default_dir)
+            prev = dynamic.get(self.dialog_name,
+                    expanduser(u'~'))
+            if os.path.exists(prev):
+                if os.path.isfile(prev):
+                    prev = os.path.dirname(prev)
+            else:
+                prev = expanduser(u'~')
+            initial_dir = os.path.join(prev, bn)
+        elif no_save_dir:
+            initial_dir = expanduser(default_dir)
         else:
             initial_dir = dynamic.get(self.dialog_name,
-                    os.path.expanduser(default_dir))
+                    expanduser(default_dir))
         if not isinstance(initial_dir, basestring):
-            initial_dir = os.path.expanduser(default_dir)
+            initial_dir = expanduser(default_dir)
+        if not initial_dir or (not os.path.exists(initial_dir) and not (
+                mode == QFileDialog.AnyFile and (no_save_dir or combine_file_and_saved_dir))):
+            initial_dir = select_initial_dir(initial_dir)
         self.selected_files = []
         use_native_dialog = 'CALIBRE_NO_NATIVE_FILEDIALOGS' not in os.environ
         with SanitizeLibraryPath():
@@ -625,28 +676,29 @@ class FileDialog(QObject):
             if not use_native_dialog:
                 opts |= QFileDialog.DontUseNativeDialog
             if mode == QFileDialog.AnyFile:
-                f = unicode(QFileDialog.getSaveFileName(parent, title,
-                    initial_dir, ftext, "", opts))
-                if f:
-                    self.selected_files.append(f)
+                f = QFileDialog.getSaveFileName(parent, title,
+                    initial_dir, ftext, "", opts)
+                if f and f[0]:
+                    self.selected_files.append(f[0])
             elif mode == QFileDialog.ExistingFile:
-                f = unicode(QFileDialog.getOpenFileName(parent, title,
-                    initial_dir, ftext, "", opts))
-                if f and os.path.exists(f):
-                    self.selected_files.append(f)
+                f = QFileDialog.getOpenFileName(parent, title,
+                    initial_dir, ftext, "", opts)
+                if f and f[0] and os.path.exists(f[0]):
+                    self.selected_files.append(f[0])
             elif mode == QFileDialog.ExistingFiles:
                 fs = QFileDialog.getOpenFileNames(parent, title, initial_dir,
                         ftext, "", opts)
-                for f in fs:
-                    f = unicode(f)
-                    if not f:
-                        continue
-                    if not os.path.exists(f):
-                        # QFileDialog for some reason quotes spaces
-                        # on linux if there is more than one space in a row
-                        f = unquote(f)
-                    if f and os.path.exists(f):
-                        self.selected_files.append(f)
+                if fs and fs[0]:
+                    for f in fs[0]:
+                        f = unicode(f)
+                        if not f:
+                            continue
+                        if not os.path.exists(f):
+                            # QFileDialog for some reason quotes spaces
+                            # on linux if there is more than one space in a row
+                            f = unquote(f)
+                        if f and os.path.exists(f):
+                            self.selected_files.append(f)
             else:
                 if mode == QFileDialog.Directory:
                     opts |= QFileDialog.ShowDirsOnly
@@ -689,14 +741,14 @@ def choose_files(window, name, title,
                  filters=[], all_files=True, select_only_single_file=False):
     '''
     Ask user to choose a bunch of files.
-    @param name: Unique dialog name used to store the opened directory
-    @param title: Title to show in dialogs titlebar
-    @param filters: list of allowable extensions. Each element of the list
-                     must be a 2-tuple with first element a string describing
-                     the type of files to be filtered and second element a list
-                     of extensions.
-    @param all_files: If True add All files to filters.
-    @param select_only_single_file: If True only one file can be selected
+    :param name: Unique dialog name used to store the opened directory
+    :param title: Title to show in dialogs titlebar
+    :param filters: list of allowable extensions. Each element of the list
+                    must be a 2-tuple with first element a string describing
+                    the type of files to be filtered and second element a list
+                    of extensions.
+    :param all_files: If True add All files to filters.
+    :param select_only_single_file: If True only one file can be selected
     '''
     mode = QFileDialog.ExistingFile if select_only_single_file else QFileDialog.ExistingFiles
     fd = FileDialog(title=title, name=name, filters=filters,
@@ -707,7 +759,7 @@ def choose_files(window, name, title,
         return fd.get_files()
     return None
 
-def choose_save_file(window, name, title, filters=[], all_files=True):
+def choose_save_file(window, name, title, filters=[], all_files=True, initial_path=None, initial_filename=None):
     '''
     Ask user to choose a file to save to. Can be a non-existent file.
     :param filters: list of allowable extensions. Each element of the list
@@ -715,10 +767,18 @@ def choose_save_file(window, name, title, filters=[], all_files=True):
                      the type of files to be filtered and second element a list
                      of extensions.
     :param all_files: If True add All files to filters.
+    :param initial_path: The initially selected path (does not need to exist). Cannot be used with initial_filename.
+    :param initial_filename: If specified, the initially selected path is this filename in the previously used directory. Cannot be used with initial_path.
     '''
-    mode = QFileDialog.AnyFile
-    fd = FileDialog(title=title, name=name, filters=filters,
-                    parent=window, add_all_files_filter=all_files, mode=mode)
+    kwargs = dict(title=title, name=name, filters=filters,
+                    parent=window, add_all_files_filter=all_files, mode=QFileDialog.AnyFile)
+    if initial_path is not None:
+        kwargs['no_save_dir'] = True
+        kwargs['default_dir'] = initial_path
+    elif initial_filename is not None:
+        kwargs['combine_file_and_saved_dir'] = True
+        kwargs['default_dir'] = initial_filename
+    fd = FileDialog(**kwargs)
     fd.setParent(None)
     ans = None
     if fd.accepted:
@@ -748,6 +808,12 @@ def pixmap_to_data(pixmap, format='JPEG', quality=90):
     buf.open(QBuffer.WriteOnly)
     pixmap.save(buf, format, quality=quality)
     return bytes(ba.data())
+
+def decouple(prefix):
+    ' Ensure that config files used by utility code are not the same as those used by the main calibre GUI '
+    dynamic.decouple(prefix)
+    from calibre.gui2.widgets import history
+    history.decouple(prefix)
 
 class ResizableDialog(QDialog):
 
@@ -803,19 +869,55 @@ def load_builtin_fonts():
                     if u'calibre Symbols' in fam:
                         _rating_font = u'calibre Symbols'
 
+def setup_gui_option_parser(parser):
+    if islinux:
+        parser.add_option('--detach', default=False, action='store_true',
+                          help=_('Detach from the controlling terminal, if any (linux only)'))
+
+def detach_gui():
+    if islinux and not DEBUG:
+        # Detach from the controlling process.
+        if os.fork() != 0:
+            raise SystemExit(0)
+        os.setsid()
+        so, se = file(os.devnull, 'a+'), file(os.devnull, 'a+', 0)
+        os.dup2(so.fileno(), sys.__stdout__.fileno())
+        os.dup2(se.fileno(), sys.__stderr__.fileno())
 
 class Application(QApplication):
 
-    def __init__(self, args, force_calibre_style=False,
-            override_program_name=None):
+    def __init__(self, args, force_calibre_style=False, override_program_name=None, headless=False):
         self.file_event_hook = None
         if override_program_name:
             args = [override_program_name] + args[1:]
+        if headless:
+            if not args:
+                args = sys.argv[:1]
+            args.extend(['-platformpluginpath', sys.extensions_location, '-platform', 'headless'])
         qargs = [i.encode('utf-8') if isinstance(i, unicode) else i for i in args]
         self.pi = plugins['progress_indicator'][0]
-        if DEBUG:
-            self.redirect_notify = True
+        self.setup_styles(force_calibre_style)
         QApplication.__init__(self, qargs)
+        f = QFont(QApplication.font())
+        if (f.family(), f.pointSize()) == ('Sans Serif', 9):  # Hard coded Qt settings, no user preference detected
+            f.setPointSize(10)
+            QApplication.setFont(f)
+        f = QFontInfo(f)
+        self.original_font = (f.family(), f.pointSize(), f.weight(), f.italic(), 100)
+        if not self.using_calibre_style and self.style().objectName() == 'fusion':
+            # Since Qt is using the fusion style anyway, specialize it
+            self.load_calibre_style()
+        fi = gprefs['font']
+        if fi is not None:
+            font = QFont(*(fi[:4]))
+            s = gprefs.get('font_stretch', None)
+            if s is not None:
+                font.setStretch(s)
+            QApplication.setFont(font)
+
+        dl = QLocale(get_lang())
+        if unicode(dl.bcp47Name()) != u'C':
+            QLocale.setDefault(dl)
         global gui_thread, qt_app
         gui_thread = QThread.currentThread()
         self._translator = None
@@ -823,17 +925,6 @@ class Application(QApplication):
         qt_app = self
         self._file_open_paths = []
         self._file_open_lock = RLock()
-        self.setup_styles(force_calibre_style)
-
-    if DEBUG:
-        def notify(self, receiver, event):
-            if self.redirect_notify:
-                self.redirect_notify = False
-                return self.pi.do_notify(receiver, event)
-            else:
-                ret = QApplication.notify(self, receiver, event)
-                self.redirect_notify = True
-                return ret
 
     def load_builtin_fonts(self, scan_for_fonts=False):
         if scan_for_fonts:
@@ -843,66 +934,7 @@ class Application(QApplication):
 
         load_builtin_fonts()
 
-    def load_calibre_style(self):
-        # On OS X QtCurve resets the palette, so we preserve it explicitly
-        orig_pal = QPalette(self.palette())
-
-        path = os.path.join(sys.extensions_location, 'calibre_style.'+(
-            'pyd' if iswindows else 'so'))
-        if not self.pi.load_style(path, 'Calibre'):
-            prints('Failed to load calibre style')
-        # On OSX, on some machines, colors can be invalid. See https://bugs.launchpad.net/bugs/1014900
-        for role in (orig_pal.Button, orig_pal.Window):
-            c = orig_pal.brush(role).color()
-            if not c.isValid() or not c.toRgb().isValid():
-                orig_pal.setColor(role, QColor(u'lightgray'))
-
-        self.setPalette(orig_pal)
-        style = self.style()
-        icon_map = {}
-        pcache = {}
-        for k, v in {
-                'DialogYesButton': u'ok.png',
-                'DialogNoButton': u'window-close.png',
-                'DialogCloseButton': u'window-close.png',
-                'DialogOkButton': u'ok.png',
-                'DialogCancelButton': u'window-close.png',
-                'DialogHelpButton': u'help.png',
-                'DialogOpenButton': u'document_open.png',
-                'DialogSaveButton': u'save.png',
-                'DialogApplyButton': u'ok.png',
-                'DialogDiscardButton': u'trash.png',
-                'MessageBoxInformation': u'dialog_information.png',
-                'MessageBoxWarning': u'dialog_warning.png',
-                'MessageBoxCritical': u'dialog_error.png',
-                'MessageBoxQuestion': u'dialog_question.png',
-                # These two are used to calculate the sizes for the doc widget
-                # title bar buttons, therefore, they have to exist. The actual
-                # icon is not used.
-                'TitleBarCloseButton': u'window-close.png',
-                'TitleBarNormalButton': u'window-close.png',
-                }.iteritems():
-            if v not in pcache:
-                p = I(v)
-                if isinstance(p, bytes):
-                    p = p.decode(filesystem_encoding)
-                # if not os.path.exists(p): raise ValueError(p)
-                pcache[v] = p
-            v = pcache[v]
-            icon_map[type('')(getattr(style, 'SP_'+k))] = v
-        style.setProperty(u'calibre_icon_map', icon_map)
-        self.__icon_map_memory_ = icon_map
-
     def setup_styles(self, force_calibre_style):
-        self.original_font = QFont(QApplication.font())
-        fi = gprefs['font']
-        if fi is not None:
-            font = QFont(*(fi[:4]))
-            s = gprefs.get('font_stretch', None)
-            if s is not None:
-                font.setStretch(s)
-            QApplication.setFont(font)
-
         depth_ok = True
         if iswindows:
             # There are some people that still run 16 bit winxp installs. The
@@ -915,20 +947,39 @@ class Application(QApplication):
             if not depth_ok:
                 prints('Color depth is less than 32 bits disabling modern look')
 
-        if force_calibre_style or (depth_ok and gprefs['ui_style'] !=
-                'system'):
+        self.using_calibre_style = force_calibre_style or (depth_ok and gprefs['ui_style'] != 'system')
+        if self.using_calibre_style:
             self.load_calibre_style()
-        else:
-            st = self.style()
-            if st is not None:
-                st = unicode(st.objectName()).lower()
-            if (islinux or isbsd) and st in ('windows', 'motif', 'cde'):
-                from PyQt4.Qt import QStyleFactory
-                styles = set(map(unicode, QStyleFactory.keys()))
-                if os.environ.get('KDE_FULL_SESSION', False):
-                    self.load_calibre_style()
-                elif 'Cleanlooks' in styles:
-                    self.setStyle('Cleanlooks')
+
+    def load_calibre_style(self):
+        icon_map = self.__icon_map_memory_ = {}
+        pcache = {}
+        for k, v in {
+            'DialogYesButton': u'ok.png',
+            'DialogNoButton': u'window-close.png',
+            'DialogCloseButton': u'window-close.png',
+            'DialogOkButton': u'ok.png',
+            'DialogCancelButton': u'window-close.png',
+            'DialogHelpButton': u'help.png',
+            'DialogOpenButton': u'document_open.png',
+            'DialogSaveButton': u'save.png',
+            'DialogApplyButton': u'ok.png',
+            'DialogDiscardButton': u'trash.png',
+            'MessageBoxInformation': u'dialog_information.png',
+            'MessageBoxWarning': u'dialog_warning.png',
+            'MessageBoxCritical': u'dialog_error.png',
+            'MessageBoxQuestion': u'dialog_question.png',
+            'BrowserReload': u'view-refresh.png',
+        }.iteritems():
+            if v not in pcache:
+                p = I(v)
+                if isinstance(p, bytes):
+                    p = p.decode(filesystem_encoding)
+                # if not os.path.exists(p): raise ValueError(p)
+                pcache[v] = p
+            v = pcache[v]
+            icon_map[getattr(QStyle, 'SP_'+k)] = v
+        self.pi.load_style(icon_map)
 
     def _send_file_open_events(self):
         with self._file_open_lock:
@@ -959,20 +1010,33 @@ class SanitizeLibraryPath(object):
     '''Remove the bundled calibre libraries from LD_LIBRARY_PATH on linux. This
     is needed to prevent library conflicts when launching external utilities.'''
 
+    env_vars = {'LD_LIBRARY_PATH':'/lib', 'QT_PLUGIN_PATH':'/lib/qt_plugins'}
+
     def __enter__(self):
-        self.orig = os.environ.get('LD_LIBRARY_PATH', '')
-        self.changed = False
-        paths = [x for x in self.orig.split(os.pathsep) if x]
-        if isfrozen and islinux and paths:
-            npaths = [x for x in paths if x != sys.frozen_path+'/lib']
-            os.environ['LD_LIBRARY_PATH'] = os.pathsep.join(npaths)
-            self.changed = True
+        self.originals = {x:os.environ.get(x, '') for x in self.env_vars}
+        self.changed = {x:False for x in self.env_vars}
+        if isfrozen and islinux:
+            for var, suffix in self.env_vars.iteritems():
+                paths = [x for x in self.originals[var].split(os.pathsep) if x]
+                npaths = [x for x in paths if x != sys.frozen_path + suffix]
+                if len(npaths) < len(paths):
+                    if npaths:
+                        os.environ[var] = os.pathsep.join(npaths)
+                    else:
+                        del os.environ[var]
+                    self.changed[var] = True
 
     def __exit__(self, *args):
-        if self.changed:
-            os.environ['LD_LIBRARY_PATH'] = self.orig
+        for var, orig in self.originals.iteritems():
+            if self.changed[var]:
+                os.environ[var] = orig
 
 def open_url(qurl):
+    # Qt 5 requires QApplication to be constructed before trying to use
+    # QDesktopServices::openUrl()
+    ensure_app()
+    if isinstance(qurl, basestring):
+        qurl = QUrl(qurl)
     with SanitizeLibraryPath():
         QDesktopServices.openUrl(qurl)
 
@@ -996,13 +1060,22 @@ def open_local_file(path):
         url = QUrl.fromLocalFile(path)
         open_url(url)
 
-def must_use_qt():
-    global gui_thread, _store_app
-    if (islinux or isbsd) and ':' not in os.environ.get('DISPLAY', ''):
-        raise RuntimeError('X server required. If you are running on a'
-                ' headless machine, use xvfb')
+def ensure_app():
+    global _store_app
     if _store_app is None and QApplication.instance() is None:
-        _store_app = QApplication([])
+        args = sys.argv[:1]
+        if islinux or isbsd:
+            args += ['-platformpluginpath', sys.extensions_location, '-platform', 'headless']
+        _store_app = QApplication(args)
+
+def must_use_qt():
+    ''' This function should be called if you want to use Qt for some non-GUI
+    task like rendering HTML/SVG or using a headless browser. It will raise a
+    RuntimeError if using Qt is not possible, which will happen if the current
+    thread is not the main GUI thread. On linux, it uses a special QPA headless
+    plugin, so that the X server does not need to be running. '''
+    global gui_thread, _store_app
+    ensure_app()
     if gui_thread is None:
         gui_thread = QThread.currentThread()
     if gui_thread is not QThread.currentThread():
@@ -1024,6 +1097,25 @@ def rating_font():
     global _rating_font
     return _rating_font
 
+def elided_text(text, font=None, width=300, pos='middle'):
+    ''' Return a version of text that is no wider than width pixels when
+    rendered, replacing characters from the left, middle or right (as per pos)
+    of the string with an ellipsis. Results in a string much closer to the
+    limit than Qt's elidedText().'''
+    from PyQt5.Qt import QFontMetrics, QApplication
+    fm = QApplication.fontMetrics() if font is None else QFontMetrics(font)
+    delta = 4
+    ellipsis = u'\u2026'
+
+    def remove_middle(x):
+        mid = len(x) // 2
+        return x[:max(0, mid - (delta//2))] + ellipsis + x[mid + (delta//2):]
+
+    chomp = {'middle':remove_middle, 'left':lambda x:(ellipsis + x[delta:]), 'right':lambda x:(x[:-delta] + ellipsis)}[pos]
+    while len(text) > delta and fm.width(text) > width:
+        text = chomp(text)
+    return unicode(text)
+
 def find_forms(srcdir):
     base = os.path.join(srcdir, 'calibre', 'gui2')
     forms = []
@@ -1037,9 +1129,9 @@ def find_forms(srcdir):
 def form_to_compiled_form(form):
     return form.rpartition('.')[0]+'_ui.py'
 
-def build_forms(srcdir, info=None):
+def build_forms(srcdir, info=None, summary=False, check_for_migration=False):
     import re, cStringIO
-    from PyQt4.uic import compileUi
+    from PyQt5.uic import compileUi
     forms = find_forms(srcdir)
     if info is None:
         from calibre import prints
@@ -1049,31 +1141,49 @@ def build_forms(srcdir, info=None):
         ans = 'I(%s%s%s)'%(match.group(1), match.group(2), match.group(1))
         return ans
 
+    num = 0
+    transdef_pat = re.compile(r'^\s+_translate\s+=\s+QtCore.QCoreApplication.translate$', flags=re.M)
+    transpat = re.compile(r'_translate\s*\(.+?,\s+"(.+?)(?<!\\)"\)', re.DOTALL)
+
+    # Ensure that people running from source have all their forms rebuilt for
+    # the qt5 migration
+    force_compile = check_for_migration and not gprefs.get('migrated_forms_to_qt5', False)
+
     for form in forms:
         compiled_form = form_to_compiled_form(form)
-        if not os.path.exists(compiled_form) or os.stat(form).st_mtime > os.stat(compiled_form).st_mtime:
-            info('\tCompiling form', form)
+        if force_compile or not os.path.exists(compiled_form) or os.stat(form).st_mtime > os.stat(compiled_form).st_mtime:
+            if not summary:
+                info('\tCompiling form', form)
             buf = cStringIO.StringIO()
             compileUi(form, buf)
             dat = buf.getvalue()
-            dat = dat.replace('__appname__', 'calibre')
             dat = dat.replace('import images_rc', '')
-            dat = dat.replace('from library import', 'from calibre.gui2.library import')
-            dat = dat.replace('from widgets import', 'from calibre.gui2.widgets import')
-            dat = dat.replace('from convert.xpath_wizard import',
-                'from calibre.gui2.convert.xpath_wizard import')
-            dat = re.sub(r'^ {4}def _translate\(context, text, disambig\):\s+return.*$', '    pass', dat,
-                         flags=re.M)
-            dat = re.compile(r'(?:QtGui.QApplication.translate|(?<!def )_translate)\(.+?,\s+"(.+?)(?<!\\)",.+?\)', re.DOTALL).sub(r'_("\1")', dat)
+            dat = transdef_pat.sub('', dat)
+            dat = transpat.sub(r'_("\1")', dat)
             dat = dat.replace('_("MMM yyyy")', '"MMM yyyy"')
+            dat = dat.replace('_("d MMM yyyy")', '"d MMM yyyy"')
             dat = pat.sub(sub, dat)
-            dat = dat.replace('from QtWebKit.QWebView import QWebView',
-                    'from PyQt4 import QtWebKit\nfrom PyQt4.QtWebKit import QWebView')
 
             open(compiled_form, 'wb').write(dat)
+            num += 1
+    if num:
+        info('Compiled %d forms' % num)
+    if force_compile:
+        gprefs.set('migrated_forms_to_qt5', True)
 
 _df = os.environ.get('CALIBRE_DEVELOP_FROM', None)
 if _df and os.path.exists(_df):
-    build_forms(_df)
+    build_forms(_df, check_for_migration=True)
 
+
+if islinux or isbsd:
+    def workaround_broken_under_mouse(ch):
+        import sip
+        from PyQt5.Qt import QCursor, QToolButton
+        # See https://bugreports.qt-project.org/browse/QTBUG-40233
+        if isinstance(ch, QToolButton) and not sip.isdeleted(ch):
+            ch.setAttribute(Qt.WA_UnderMouse, ch.rect().contains(ch.mapFromGlobal(QCursor.pos())))
+            ch.update()
+else:
+    workaround_broken_under_mouse = None
 

@@ -7,7 +7,7 @@ __docformat__ = 'restructuredtext en'
 
 from functools import partial
 
-from PyQt4.Qt import QToolButton
+from PyQt5.Qt import QToolButton
 
 from calibre.gui2.actions import InterfaceAction
 
@@ -22,11 +22,11 @@ class SimilarBooksAction(InterfaceAction):
     def genesis(self):
         m = self.qaction.menu()
         for text, icon, target, shortcut in [
-        (_('Books by same author'), 'user_profile.png', 'authors', _('Alt+A')),
+        (_('Books by same author'), 'user_profile.png', 'authors', 'Alt+A'),
         (_('Books in this series'), 'books_in_series.png', 'series',
-            _('Alt+Shift+S')),
-        (_('Books by this publisher'), 'publisher.png', 'publisher', _('Alt+P')),
-        (_('Books with the same tags'), 'tags.png', 'tags', _('Alt+T')),]:
+            'Alt+Shift+S'),
+        (_('Books by this publisher'), 'publisher.png', 'publisher', 'Alt+P'),
+        (_('Books with the same tags'), 'tags.png', 'tags', 'Alt+T'),]:
             ac = self.create_action(spec=(text, icon, None, shortcut),
                     attr=target)
             m.addAction(ac)
@@ -75,7 +75,7 @@ class SimilarBooksAction(InterfaceAction):
 
         if not isinstance(val, (list, set)):
             val = [val]
-        search = [col + ':"='+t+'"' for t in val]
+        search = [col + ':"='+t.replace('"', '\\"')+'"' for t in val]
         if search:
             self.gui.search.set_search_string(join.join(search),
                     store_in_history=True)

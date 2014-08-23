@@ -9,9 +9,11 @@ __docformat__ = 'restructuredtext en'
 
 import os.path
 
-from PyQt4.Qt import (QDialog, QGridLayout, QIcon, QLabel, QTreeWidget,
-                      QTreeWidgetItem, Qt, QFont, QDialogButtonBox)
+from PyQt5.Qt import (
+    QDialog, QGridLayout, QIcon, QLabel, QTreeWidget, QTreeWidgetItem, Qt,
+    QFont, QDialogButtonBox, QApplication)
 
+from calibre.gui2 import gprefs
 from calibre.ebooks.metadata import authors_to_string
 
 class DuplicatesQuestion(QDialog):
@@ -47,13 +49,23 @@ class DuplicatesQuestion(QDialog):
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         l.addWidget(bb, 2, 0, 1, 2)
+        l.setColumnStretch(1, 10)
         self.ab = ab = bb.addButton(_('Select &all'), bb.ActionRole)
-        ab.clicked.connect(self.select_all)
+        ab.clicked.connect(self.select_all), ab.setIcon(QIcon(I('plus.png')))
         self.nb = ab = bb.addButton(_('Select &none'), bb.ActionRole)
-        ab.clicked.connect(self.select_none)
+        ab.clicked.connect(self.select_none), ab.setIcon(QIcon(I('minus.png')))
+        self.cb = cb = bb.addButton(_('&Copy to clipboard'), bb.ActionRole)
+        cb.setIcon(QIcon(I('edit-copy.png')))
+        cb.clicked.connect(self.copy_to_clipboard)
 
         self.resize(self.sizeHint())
+        geom = gprefs.get('duplicates-question-dialog-geometry', None)
+        if geom is not None:
+            self.restoreGeometry(geom)
         self.exec_()
+
+    def copy_to_clipboard(self):
+        QApplication.clipboard().setText(self.as_text)
 
     def select_all(self):
         for i in xrange(self.dup_list.topLevelItemCount()):
@@ -66,8 +78,16 @@ class DuplicatesQuestion(QDialog):
             x.setCheckState(0, Qt.Unchecked)
 
     def reject(self):
+        self.save_geometry()
         self.select_none()
         QDialog.reject(self)
+
+    def accept(self):
+        self.save_geometry()
+        QDialog.accept(self)
+
+    def save_geometry(self):
+        gprefs.set('duplicates-question-dialog-geometry', bytearray(self.saveGeometry()))
 
     def process_duplicates(self, db, duplicates):
         ta = _('%(title)s by %(author)s [%(formats)s]')
@@ -115,10 +135,23 @@ class DuplicatesQuestion(QDialog):
         for i in xrange(self.dup_list.topLevelItemCount()):
             x = self.dup_list.topLevelItem(i)
             if x.checkState(0) == Qt.Checked:
-                yield x.data(0, Qt.UserRole).toPyObject()
+                yield x.data(0, Qt.UserRole)
+
+    @property
+    def as_text(self):
+        entries = []
+        for i in xrange(self.dup_list.topLevelItemCount()):
+            x = self.dup_list.topLevelItem(i)
+            check = '✓' if x.checkState(0) == Qt.Checked else '✗'
+            title = '%s %s' % (check, unicode(x.text(0)))
+            dups = []
+            for child in (x.child(j) for j in xrange(x.childCount())):
+                dups.append('\t' + unicode(child.text(0)))
+            entries.append(title + '\n' + '\n'.join(dups))
+        return '\n\n'.join(entries)
+
 
 if __name__ == '__main__':
-    from PyQt4.Qt import QApplication
     from calibre.ebooks.metadata.book.base import Metadata as M
     from calibre.library import db
 

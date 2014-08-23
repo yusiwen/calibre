@@ -8,7 +8,7 @@ from calibre.web.feeds.news import BasicNewsRecipe
 
 class FazNet(BasicNewsRecipe):
     title                 = 'FAZ.NET'
-    __author__            = 'Kovid Goyal, Darko Miletic'
+    __author__            = 'Kovid Goyal, Darko Miletic, Armin Geller'  # AGe upd. V4 2014-01-14
     description           = 'Frankfurter Allgemeine Zeitung'
     publisher             = 'Frankfurter Allgemeine Zeitung GmbH'
     category              = 'news, politics, Germany'
@@ -19,8 +19,15 @@ class FazNet(BasicNewsRecipe):
     no_stylesheets        = True
     encoding              = 'utf-8'
     remove_javascript     = True
+
     keep_only_tags = [{'class':'FAZArtikelEinleitung'},
             {'id':'ArtikelTabContent_0'}]
+
+    remove_tags_after = [dict(name='div', attrs={'class':['ArtikelFooter']})]
+    remove_tags = [dict(name='div', attrs={'class':['ArtikelFooter']})]
+
+# recursions = 1                        # AGe 2014-01-10
+# match_regexps = [r'-p[2-9].html$']    # AGe 2014-01-10
 
     feeds = [
               ('FAZ.NET Aktuell', 'http://www.faz.net/aktuell/?rssview=1'),
@@ -28,12 +35,39 @@ class FazNet(BasicNewsRecipe):
               ('Wirtschaft', 'http://www.faz.net/aktuell/wirtschaft/?rssview=1'),
               ('Feuilleton', 'http://www.faz.net/aktuell/feuilleton/?rssview=1'),
               ('Sport', 'http://www.faz.net/aktuell/sport/?rssview=1'),
+              ('Lebensstil', 'http://www.faz.net/aktuell/lebensstil/?rssview=1'),
               ('Gesellschaft', 'http://www.faz.net/aktuell/gesellschaft/?rssview=1'),
               ('Finanzen', 'http://www.faz.net/aktuell/finanzen/?rssview=1'),
               ('Technik & Motor', 'http://www.faz.net/aktuell/technik-motor/?rssview=1'),
               ('Wissen', 'http://www.faz.net/aktuell/wissen/?rssview=1'),
               ('Reise', 'http://www.faz.net/aktuell/reise/?rssview=1'),
               ('Beruf & Chance', 'http://www.faz.net/aktuell/beruf-chance/?rssview=1'),
-              ('Rhein-Main', 'http://www.faz.net/aktuell/rhein-main/?rssview=1') # AGe add 2012-07-13
+              ('Rhein-Main', 'http://www.faz.net/aktuell/rhein-main/?rssview=1')
             ]
 
+# AGe 2014-01-10 New  for multipages
+    INDEX                 = ''
+    def append_page(self, soup, appendtag, position):   # AGe upd 2014-01-14
+        pager = soup.find('a',attrs={'title':'Nächste Seite'})
+        if pager:
+            nexturl = self.INDEX + pager['href']
+            soup2 = self.index_to_soup(nexturl)
+            texttag = soup2.find('div', attrs={'class':'FAZArtikelContent'})
+            for cls in ('ArtikelFooter', 'ArtikelAbbinder', 'ArtikelKommentieren Artikelfuss GETS;tk;boxen.top-lesermeinungen;tp;content', 'Anzeige GoogleAdsBuehne'):
+                div = texttag.find(attrs={'class':cls})
+                if div is not None:
+                    div.extract()
+            newpos = len(texttag.contents)
+            self.append_page(soup2,texttag,newpos)
+            texttag.extract()
+            pager.extract()
+            appendtag.insert(position,texttag)
+
+    def preprocess_html(self, soup):                    # AGe upd 2014-01-14
+        self.append_page(soup, soup.body, 3)
+        return self.adeify_images(soup)
+
+    def postprocess_html(self, soup, first_fetch):      # AGe add 2014-01-14
+        for div in soup.findAll(id='ArticlePagerBottom'):
+            div.extract()
+        return soup

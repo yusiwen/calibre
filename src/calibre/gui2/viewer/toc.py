@@ -8,7 +8,7 @@ __copyright__ = '2012, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import re
-from PyQt4.Qt import (QStandardItem, QStandardItemModel, Qt, QFont,
+from PyQt5.Qt import (QStandardItem, QStandardItemModel, Qt, QFont,
         QTreeView)
 
 from calibre.ebooks.metadata.toc import TOC as MTOC
@@ -17,12 +17,16 @@ class TOCView(QTreeView):
 
     def __init__(self, *args):
         QTreeView.__init__(self, *args)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMinimumWidth(80)
+        self.header().close()
         self.setStyleSheet('''
                 QTreeView {
                     background-color: palette(window);
                     color: palette(window-text);
                     border: none;
                 }
+
                 QTreeView::item {
                     border: 1px solid transparent;
                     padding-top:0.5ex;
@@ -33,17 +37,6 @@ class TOCView(QTreeView):
                     background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #e7effd, stop: 1 #cbdaf1);
                     border: 1px solid #bfcde4;
                     border-radius: 6px;
-                }
-                QHeaderView::section {
-                    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                                    stop:0 #616161, stop: 0.5 #505050,
-                                                    stop: 0.6 #434343, stop:1 #656565);
-                    color: white;
-                    padding-left: 4px;
-                    padding-top: 0.5ex;
-                    padding-bottom: 0.5ex;
-                    border: 1px solid #6c6c6c;
-                    font-weight: bold;
                 }
         ''')
 
@@ -216,16 +209,15 @@ class TOC(QStandardItemModel):
         self.all_items = depth_first = []
         for t in toc:
             self.appendRow(TOCItem(spine, t, 0, depth_first))
-        self.setHorizontalHeaderItem(0, QStandardItem(_('Table of Contents')))
 
         for x in depth_first:
-            possible_enders = [ t for t in depth_first if t.depth <= x.depth
+            possible_enders = [t for t in depth_first if t.depth <= x.depth
                     and t.starts_at >= x.starts_at and t is not x and t not in
                     x.ancestors]
             if possible_enders:
                 min_spine = min(t.starts_at for t in possible_enders)
-                possible_enders = { t.fragment for t in possible_enders if
-                        t.starts_at == min_spine }
+                possible_enders = {t.fragment for t in possible_enders if
+                        t.starts_at == min_spine}
             else:
                 min_spine = len(spine) - 1
                 possible_enders = set()
@@ -247,7 +239,8 @@ class TOC(QStandardItemModel):
             backwards=False, current_entry=None):
         current_entry = (self.currently_viewed_entry if current_entry is None
                 else current_entry)
-        if current_entry is None: return
+        if current_entry is None:
+            return
         items = reversed(self.all_items) if backwards else self.all_items
         found = False
 

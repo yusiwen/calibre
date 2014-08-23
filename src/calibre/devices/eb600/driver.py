@@ -53,17 +53,18 @@ class TOLINO(EB600):
 
     name = 'Tolino Shine Device Interface'
     gui_name = 'Tolino Shine'
-    description    = _('Communicate with the Tolino Shine reader.')
+    description    = _('Communicate with the Tolino Shine and Vision readers')
     FORMATS = ['epub', 'pdf', 'txt']
-    BCD         = [0x226]
-    VENDOR_NAME      = ['DEUTSCHE']
-    WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = ['_TELEKOMTOLINO']
+    PRODUCT_ID  = EB600.PRODUCT_ID + [0x6033]
+    BCD         = [0x226, 0x9999]
+    VENDOR_NAME      = ['DEUTSCHE', 'LINUX']
+    WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = ['_TELEKOMTOLINO', 'FILE-CD_GADGET']
 
     EXTRA_CUSTOMIZATION_MESSAGE = [
         _('Swap main and card A') +
-            ':::' +
-            _('Check this box if the device\'s main memory is being seen as card a and the card '
-              'is being seen as main memory. Some Tolino devices may need this option.'),
+        ':::' +
+        _('Check this box if the device\'s main memory is being seen as card a and the card '
+            'is being seen as main memory. Some Tolino devices may need this option.'),
     ]
 
     EXTRA_CUSTOMIZATION_DEFAULT = [
@@ -94,6 +95,17 @@ class TOLINO(EB600):
             drives['main'] = carda
             drives['carda'] = main
         return drives
+
+    def post_open_callback(self):
+        # The Tolino Vision only handles books inside the Books folder
+        product_id, bcd = self.device_being_opened[1], self.device_being_opened[2]
+        is_tolino = product_id == 0x6033 or (product_id == 0x1688 and bcd == 0x226)
+        self.ebook_dir_for_upload = 'Books' if is_tolino else ''
+
+    def get_main_ebook_dir(self, for_upload=False):
+        if for_upload:
+            return getattr(self, 'ebook_dir_for_upload', self.EBOOK_DIR_MAIN)
+        return self.EBOOK_DIR_MAIN
 
 class COOL_ER(EB600):
 

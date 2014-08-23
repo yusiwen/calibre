@@ -21,7 +21,7 @@ class InvalidPlugin(ValueError):
     pass
 
 
-class Plugin(object): # {{{
+class Plugin(object):  # {{{
     '''
     A calibre plugin. Useful members include:
 
@@ -39,6 +39,8 @@ class Plugin(object): # {{{
     Useful methods:
 
         * :meth:`temporary_file`
+        * :meth:`__enter__`
+        * :meth:`load_resources`
 
     '''
     #: List of platforms this plugin works on
@@ -126,7 +128,7 @@ class Plugin(object): # {{{
         True if the user clicks OK, False otherwise. The changes are
         automatically applied.
         '''
-        from PyQt4.Qt import QDialog, QDialogButtonBox, QVBoxLayout, \
+        from PyQt5.Qt import QDialog, QDialogButtonBox, QVBoxLayout, \
                 QLabel, Qt, QLineEdit
         from calibre.gui2 import gprefs
 
@@ -225,7 +227,6 @@ class Plugin(object): # {{{
                     ans[candidate] = zf.read(candidate)
         return ans
 
-
     def customization_help(self, gui=False):
         '''
         Return a string giving help on how to customize this plugin.
@@ -264,6 +265,12 @@ class Plugin(object): # {{{
             return False
 
     def __enter__(self, *args):
+        '''
+        Add this plugin to the python path so that it's contents become directly importable.
+        Useful when bundling large python libraries into the plugin. Use it like this::
+            with plugin:
+                import something
+        '''
         if self.plugin_path is not None:
             from calibre.utils.zipfile import ZipFile
             zf = ZipFile(self.plugin_path)
@@ -273,6 +280,7 @@ class Plugin(object): # {{{
             for ext in ('pyd', 'so', 'dll', 'dylib'):
                 if ext in extensions:
                     zip_safe = False
+                    break
             if zip_safe:
                 sys.path.insert(0, self.plugin_path)
                 self.sys_insertion_path = self.plugin_path
@@ -283,7 +291,6 @@ class Plugin(object): # {{{
                 zf.extractall(self.sys_insertion_path)
                 sys.path.insert(0, self.sys_insertion_path)
             zf.close()
-
 
     def __exit__(self, *args):
         ip, it = getattr(self, 'sys_insertion_path', None), getattr(self,
@@ -304,7 +311,7 @@ class Plugin(object): # {{{
 
 # }}}
 
-class FileTypePlugin(Plugin): # {{{
+class FileTypePlugin(Plugin):  # {{{
     '''
     A plugin that is associated with a particular set of file types.
     '''
@@ -356,13 +363,13 @@ class FileTypePlugin(Plugin): # {{{
 
         :param book_id: Database id of the added book.
         :param book_format: The file type of the book that was added.
-		:param db: Library database.
+                :param db: Library database.
         '''
-        pass # Default implementation does nothing
+        pass  # Default implementation does nothing
 
 # }}}
 
-class MetadataReaderPlugin(Plugin): # {{{
+class MetadataReaderPlugin(Plugin):  # {{{
     '''
     A plugin that implements reading metadata from a set of file types.
     '''
@@ -392,7 +399,7 @@ class MetadataReaderPlugin(Plugin): # {{{
         return None
 # }}}
 
-class MetadataWriterPlugin(Plugin): # {{{
+class MetadataWriterPlugin(Plugin):  # {{{
     '''
     A plugin that implements reading metadata from a set of file types.
     '''
@@ -423,7 +430,7 @@ class MetadataWriterPlugin(Plugin): # {{{
 
 # }}}
 
-class CatalogPlugin(Plugin): # {{{
+class CatalogPlugin(Plugin):  # {{{
     '''
     A plugin that implements a catalog generator.
     '''
@@ -516,8 +523,7 @@ class CatalogPlugin(Plugin): # {{{
         from calibre.customize.ui import config
         from calibre.ptempfile import PersistentTemporaryDirectory
 
-        if not type(self) in builtin_plugins and \
-           not self.name in config['disabled_plugins']:
+        if not type(self) in builtin_plugins and self.name not in config['disabled_plugins']:
             files_to_copy = ["%s.%s" % (self.name.lower(),ext) for ext in ["ui","py"]]
             resources = zipfile.ZipFile(self.plugin_path,'r')
 
@@ -553,7 +559,7 @@ class CatalogPlugin(Plugin): # {{{
 
 # }}}
 
-class InterfaceActionBase(Plugin): # {{{
+class InterfaceActionBase(Plugin):  # {{{
 
     supported_platforms = ['windows', 'osx', 'linux']
     author         = 'Kovid Goyal'
@@ -580,7 +586,7 @@ class InterfaceActionBase(Plugin): # {{{
 
 # }}}
 
-class PreferencesPlugin(Plugin): # {{{
+class PreferencesPlugin(Plugin):  # {{{
 
     '''
     A plugin representing a widget displayed in the Preferences dialog.
@@ -639,7 +645,7 @@ class PreferencesPlugin(Plugin): # {{{
 
 # }}}
 
-class StoreBase(Plugin): # {{{
+class StoreBase(Plugin):  # {{{
 
     supported_platforms = ['windows', 'osx', 'linux']
     author         = 'John Schember'
@@ -688,7 +694,9 @@ class StoreBase(Plugin): # {{{
 
 # }}}
 
-class ViewerPlugin(Plugin): # {{{
+class ViewerPlugin(Plugin):  # {{{
+
+    type = _('Viewer')
 
     '''
     These plugins are used to add functionality to the calibre viewer.
@@ -696,11 +704,11 @@ class ViewerPlugin(Plugin): # {{{
 
     def load_fonts(self):
         '''
-        This method is called once at viewer starup. It should load any fonts
+        This method is called once at viewer startup. It should load any fonts
         it wants to make available. For example::
 
             def load_fonts():
-                from PyQt4.Qt import QFontDatabase
+                from PyQt5.Qt import QFontDatabase
                 font_data = get_resources(['myfont1.ttf', 'myfont2.ttf'])
                 for raw in font_data.itervalues():
                     QFontDatabase.addApplicationFontFromData(raw)
@@ -725,6 +733,30 @@ class ViewerPlugin(Plugin): # {{{
         it in the same way as load_javascript().
         '''
         pass
+
+    def customize_ui(self, ui):
+        '''
+        This method is called once when the viewer is created. Use it to make
+        any customizations you want to the viewer's user interface. For
+        example, you can modify the toolbars via ui.tool_bar and ui.tool_bar2.
+        '''
+        pass
+
+    def customize_context_menu(self, menu, event, hit_test_result):
+        '''
+        This method is called every time the context (right-click) menu is
+        shown. You can use it to customize the context menu. ``event`` is the
+        context menu event and hit_test_result is the QWebHitTestResult for this
+        event in the currently loaded document.
+        '''
+        pass
+
+# }}}
+
+class EditBookToolPlugin(Plugin):  # {{{
+
+    type = _('Edit Book Tool')
+    minimum_calibre_version = (1, 46, 0)
 
 # }}}
 

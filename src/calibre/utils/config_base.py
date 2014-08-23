@@ -146,6 +146,12 @@ class OptionSet(object):
         self.preferences.append(pref)
         self.defaults[name] = default
 
+    def retranslate_help(self):
+        t = _
+        for opt in self.preferences:
+            if opt.help:
+                opt.help = t(opt.help)
+
     def option_parser(self, user_defaults=None, usage='', gui_mode=False):
         from calibre.utils.config import OptionParser
         parser = OptionParser(usage, gui_mode=gui_mode)
@@ -187,6 +193,7 @@ class OptionSet(object):
             try:
                 if not isinstance(src, unicode):
                     src = src.decode('utf-8')
+                src = src.replace(u'PyQt%d.QtCore' % 4, u'PyQt5.QtCore')
                 exec src in options
             except:
                 print 'Failed to parse options string:'
@@ -221,8 +228,6 @@ class OptionSet(object):
         if val is val is True or val is False or val is None or \
            isinstance(val, (int, float, long, basestring)):
             return repr(val)
-        if val.__class__.__name__ == 'QString':
-            return repr(unicode(val))
         pickle = cPickle.dumps(val, -1)
         return 'cPickle.loads(%s)'%repr(pickle)
 
@@ -341,6 +346,9 @@ class ConfigProxy(object):
 
     def refresh(self):
         self.__opts = self.__config.parse()
+
+    def retranslate_help(self):
+        self.__config.option_set.retranslate_help()
 
     def __getitem__(self, key):
         return self.get(key)

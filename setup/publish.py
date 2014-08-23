@@ -6,10 +6,10 @@ __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import os, shutil, subprocess, glob
+import os, shutil, subprocess, glob, tempfile, json, time, filecmp
 
-from setup import Command, __appname__, __version__, require_clean_git, require_git_master
-
+from setup import Command, __version__, require_clean_git, require_git_master
+from setup.parallel_build import parallel_build
 
 class Stage1(Command):
 
@@ -22,6 +22,7 @@ class Stage1(Command):
             'resources',
             'translations',
             'iso639',
+            'iso3166',
             'gui',
             ]
 
@@ -64,61 +65,79 @@ class Publish(Command):
         require_git_master()
         require_clean_git()
 
+class PublishBetas(Command):
+
+    sub_commands = ['stage2', 'sdist']
+
+    def pre_sub_commands(self, opts):
+        require_clean_git()
+
+    def run(self, opts):
+        dist = self.a(self.j(self.d(self.SRC), 'dist'))
+        subprocess.check_call(
+            ('rsync --partial -rh --progress --delete-after %s/ download.calibre-ebook.com:/srv/download/betas/' % dist).split())
+
 class Manual(Command):
 
     description='''Build the User Manual '''
 
+    def add_options(self, parser):
+        parser.add_option('-l', '--language', action='append', default=[],
+                          help='Build translated versions for only the specified languages (can be specified multiple times)')
+
     def run(self, opts):
-        cwd = os.path.abspath(os.getcwd())
-        os.chdir(os.path.join(self.SRC, '..', 'manual'))
+        tdir = self.j(tempfile.gettempdir(), 'user-manual-build')
+        if os.path.exists(tdir):
+            shutil.rmtree(tdir)
+        os.mkdir(tdir)
+        st = time.time()
+        base = self.j(self.d(self.SRC), 'manual')
+        for d in ('generated', ):
+            d = self.j(base, d)
+            if os.path.exists(d):
+                shutil.rmtree(d)
+            os.makedirs(d)
+        jobs = []
+        languages = opts.language or list(json.load(open(self.j(base, 'locale', 'completed.json'), 'rb')))
+        for language in (['en'] + languages):
+            jobs.append((['calibre-debug', self.j(self.d(self.SRC), 'manual', 'build.py'),
+                          language, self.j(tdir, language)],
+                         '\n\n**************** Building translations for: %s'%language))
+        self.info('Building manual for %d languages' % len(jobs))
+        if not parallel_build(jobs, self.info):
+            raise SystemExit(1)
+        cwd = os.getcwdu()
         try:
-            for d in ('.build', 'cli'):
-                if os.path.exists(d):
-                    shutil.rmtree(d)
-                os.makedirs(d)
-            if not os.path.exists('.build'+os.sep+'html'):
-                os.makedirs('.build'+os.sep+'html')
-            os.environ['__appname__'] = __appname__
-            os.environ['__version__'] = __version__
-            subprocess.check_call(['sphinx-build', '-b', 'html', '-t', 'online',
-                                   '-d', '.build/doctrees', '.', '.build/html'])
-            subprocess.check_call(['sphinx-build', '-b', 'myepub', '-d',
-                                   '.build/doctrees', '.', '.build/epub'])
-            with self:
-                subprocess.check_call(['sphinx-build', '-b', 'mylatex', '-d',
-                                   '.build/doctrees', '.', '.build/latex'])
-            pwd = os.getcwdu()
-            os.chdir('.build/latex')
-            subprocess.check_call(['make', 'all-pdf'], stdout=open(os.devnull,
-                'wb'))
-            os.chdir(pwd)
-            epub_dest = self.j('.build', 'html', 'calibre.epub')
-            pdf_dest = self.j('.build', 'html', 'calibre.pdf')
-            shutil.copyfile(self.j('.build', 'epub', 'calibre.epub'), epub_dest)
-            shutil.copyfile(self.j('.build', 'latex', 'calibre.pdf'), pdf_dest)
-            subprocess.check_call(['ebook-convert', epub_dest,
-                epub_dest.rpartition('.')[0] + '.azw3',
-                '--page-breaks-before=/', '--disable-font-rescaling',
-                '--chapter=/'])
+            os.chdir(self.j(tdir, 'en', 'html'))
+            for x in os.listdir(tdir):
+                if x != 'en':
+                    shutil.copytree(self.j(tdir, x, 'html'), x)
+                    self.replace_with_symlinks(x)
+                else:
+                    os.symlink('..', 'en')
+            self.info('Built manual for %d languages in %s minutes' % (len(jobs), int((time.time() - st)/60.)))
         finally:
             os.chdir(cwd)
+
+    def replace_with_symlinks(self, lang_dir):
+        ' Replace all identical files with symlinks to save disk space/upload bandwidth '
+        from calibre import walk
+        base = self.a(lang_dir)
+        for f in walk(base):
+            r = os.path.relpath(f, base)
+            orig = self.j(self.d(base), r)
+            try:
+                sz = os.stat(orig).st_size
+            except EnvironmentError:
+                continue
+            if sz == os.stat(f).st_size and filecmp._do_cmp(f, orig):
+                os.remove(f)
+                os.symlink(os.path.relpath(orig, self.d(f)), f)
 
     def clean(self):
         path = os.path.join(self.SRC, 'calibre', 'manual', '.build')
         if os.path.exists(path):
             shutil.rmtree(path)
-
-    def __enter__(self):
-        with open('index.rst', 'r+b') as f:
-            raw = self.orig_index = f.read()
-            f.seek(0)
-            f.truncate()
-            pos = raw.index(b'.. REMOVE_IN_PDF')
-            f.write(raw[:pos])
-
-    def __exit__(self, *args):
-        with open('index.rst', 'wb') as f:
-            f.write(self.orig_index)
 
 class TagRelease(Command):
 

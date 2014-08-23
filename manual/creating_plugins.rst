@@ -1,6 +1,3 @@
-
-.. include:: global.rst
-
 .. _pluginstutorial:
 
 Writing your own plugins to extend |app|'s functionality
@@ -38,9 +35,9 @@ the directory in which you created :file:`__init__.py`::
     calibre-customize -b .
 
 .. note:: 
-    On OS X you have to first install the |app| command line tools, by
-    going to :guilabel:`Preferences->Miscellaneous` and clicking the
-    :guilabel:`Install command line tools` button.
+    On OS X, the command line tools are inside the |app| bundle, for example,
+    if you installed calibre in :file:`/Applications` the command line tools
+    are in :file:`/Applications/calibre.app/Contents/MacOS/calibre`.
 
 You can download the Hello World plugin from 
 `helloworld_plugin.zip  <http://calibre-ebook.com/downloads/helloworld_plugin.zip>`_. 
@@ -58,6 +55,8 @@ how to create elements in the |app| user interface and how to access
 and query the books database in |app|. 
 
 You can download this plugin from `interface_demo_plugin.zip <http://calibre-ebook.com/downloads/interface_demo_plugin.zip>`_
+
+.. _import_name_txt:
 
 The first thing to note is that this zip file has a lot more files in it, explained below, pay particular attention to
 ``plugin-import-name-interface_demo.txt``.
@@ -91,6 +90,11 @@ The first thing to note is that this zip file has a lot more files in it, explai
 
     **about.txt**
         A text file with information about the plugin
+
+    **translations**
+        A folder containing .mo files with the translations of the user
+        interface of your plugin into different languages. See below for
+        details.
 
 Now let's look at the code.
 
@@ -175,6 +179,111 @@ You can see the ``prefs`` object being used in main.py:
 .. literalinclude:: plugin_examples/interface_demo/main.py
     :pyobject: DemoDialog.config
 
+
+Edit Book plugins
+------------------------------------------
+
+Now let's change gears for a bit and look at creating a plugin to add tools to
+the |app| book editor. The plugin is available here:
+`editor_demo_plugin.zip  <http://calibre-ebook.com/downloads/editor_demo_plugin.zip>`_. 
+
+The first step, as for all plugins is to create the
+import name empty txt file, as described :ref:`above <import_name_txt>`.
+We shall name the file ``plugin-import-name-editor_plugin_demo.txt``. 
+
+Now we create the mandatory ``__init__.py`` file that contains metadata about
+the plugin -- its name, author, version, etc.
+
+.. literalinclude:: plugin_examples/editor_demo/__init__.py
+    :lines: 8-
+
+A single editor plugin can provide multiple tools each tool corresponds to a
+single button in the toolbar and entry in the :guilabel:`Plugins` menu in the
+editor. These can have sub-menus in case the tool has multiple related actions.
+
+The tools must all be defined in the file ``main.py`` in your plugin. Every
+tool is a class that inherits from the
+:class:`calibre.gui2.tweak_book.plugin.Tool` class. Let's look at ``main.py``
+from the demo plugin, the source code is heavily commented and should be
+self-explanatory. Read the API documents of the
+:class:`calibre.gui2.tweak_book.plugin.Tool` class for more details.
+
+main.py
+^^^^^^^^^
+
+Here we will see the definition of a single tool that will multiply all font
+sizes in the book by a number provided by the user. This tool demonstrates
+various important concepts that you will need in developing your own plugins,
+so you should read the (heavily commented) source code carefully.
+
+.. literalinclude:: plugin_examples/editor_demo/main.py
+    :lines: 8-
+
+Let's break down ``main.py``. We see that it defines a single tool, named
+*Magnify fonts*. This tool will ask the user for a number and multiply all font
+sizes in the book by that number.
+
+The first important thing is the tool name which you must set to some
+relatively unique string as it will be used as the key for this tool.
+
+The next important entry point is the
+:meth:`calibre.gui2.tweak_book.plugin.Tool.create_action`. This method creates
+the QAction objects that appear in the plugins toolbar and plugin menu.
+It also, optionally, assigns a keyboard shortcut that the user can customize.
+The triggered signal from the QAction is connected to the ask_user() method
+that asks the user for the font size multiplier, and then runs the
+magnification code.
+
+The magnification code is well commented and fairly simple. The main things to
+note are that you get a reference to the editor window as ``self.gui`` and the
+editor *Boss* as ``self.boss``. The *Boss* is the object that controls the editor
+user interface. It has many useful methods, that are documented in the
+:class:`calibre.gui2.tweak_book.boss.Boss` class.
+
+Finally, there is ``self.current_container`` which is a reference to the book
+being edited as a :class:`calibre.ebooks.oeb.polish.container.Container`
+object. This represents the book as a collection of its constituent
+HTML/CSS/image files and has convenience methods for doing many useful things.
+The container object and various useful utility functions that can be reused in
+your plugin code are documented in :ref:`polish_api`.
+
+
+Adding translations to your plugin
+--------------------------------------
+
+You can have all the user interface strings in your plugin translated and
+displayed in whatever language is set for the main calibre user interface.
+
+The first step is to go through your plugin's source code and mark all user
+visible strings as translatable, by surrounding them in _(). For example::
+
+    action_spec = (_('My plugin'), None, _('My plugin is cool'), None)
+
+Then use some program to generate .po files from your plugin source code. There
+should be one .po file for every language you want to translate into. For
+example: de.po for German, fr.po for French and so on. You can use the 
+`poedit <http://www.poedit.net/>`_ program for this.
+
+Send these .po files to your translators. Once you get them back, compile them
+into .mo files. You can again use poedit for that, or just do::
+
+    calibre-debug -c "from calibre.translations.msgfmt import main; main()" filename.po
+
+Put the .mo files into the ``translations`` folder in your plugin.
+
+The last step is to simply call the function `load_translations()` at the top
+of your plugin's .py files. For performance reasons you should only call this
+function in those .py files that actually have translatable strings. So in a
+typical User Interface plugin you would call it at the top of ``ui.py`` but not
+``__init__.py``.
+
+You can test the translations of your plugins by changing the user interface
+language in calibre under Preferences->Look & Feel or by running calibre like
+this::
+
+    CALIBRE_OVERRIDE_LANG=de calibre
+
+Replace ``de`` with the language code of the language you want to test.
 
 The plugin API
 --------------------------------

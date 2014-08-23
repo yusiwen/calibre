@@ -9,14 +9,17 @@ __docformat__ = 'restructuredtext en'
 from calibre import fit_image
 
 class RescaleImages(object):
+
     'Rescale all images to fit inside given screen size'
+
+    def __init__(self, check_colorspaces=False):
+        self.check_colorspaces = check_colorspaces
 
     def __call__(self, oeb, opts):
         self.oeb, self.opts, self.log = oeb, opts, oeb.log
-        from calibre.gui2 import is_ok_to_use_qt
-        self.rescale(qt=is_ok_to_use_qt())
+        self.rescale()
 
-    def rescale(self, qt=True):
+    def rescale(self):
         from calibre.utils.magick.draw import Image
 
         is_image_collection = getattr(self.opts, 'is_image_collection', False)
@@ -31,7 +34,8 @@ class RescaleImages(object):
         for item in self.oeb.manifest:
             if item.media_type.startswith('image'):
                 ext = item.media_type.split('/')[-1].upper()
-                if ext == 'JPG': ext = 'JPEG'
+                if ext == 'JPG':
+                    ext = 'JPEG'
                 if ext not in ('PNG', 'JPEG', 'GIF'):
                     ext = 'JPEG'
 
@@ -46,6 +50,28 @@ class RescaleImages(object):
                     continue
                 width, height = img.size
 
+                try:
+                    if self.check_colorspaces and img.colorspace == 'CMYKColorspace':
+                        # We cannot do an imagemagick conversion of CMYK to RGB as
+                        # ImageMagick inverts colors if you just set the colorspace
+                        # to rgb. See for example: https://bugs.launchpad.net/bugs/1246710
+                        from PyQt5.Qt import QImage
+                        from calibre.gui2 import pixmap_to_data
+                        qimg = QImage()
+                        qimg.loadFromData(raw)
+                        if not qimg.isNull():
+                            raw = item.data = pixmap_to_data(qimg, format=ext, quality=95)
+                            img = Image()
+                            img.load(raw)
+                            self.log.warn(
+                                'The image %s is in the CMYK colorspace, converting it '
+                                'to RGB as Adobe Digital Editions cannot display CMYK' % item.href)
+                        else:
+                            self.log.warn(
+                                'The image %s is in the CMYK colorspace, you should convert'
+                                ' it to sRGB as Adobe Digital Editions cannot render CMYK' % item.href)
+                except Exception:
+                    pass
 
                 scaled, new_width, new_height = fit_image(width, height,
                         page_width, page_height)
@@ -64,6 +90,3 @@ class RescaleImages(object):
                     else:
                         item.data = data
                         item.unload_data_from_memory()
-
-
-

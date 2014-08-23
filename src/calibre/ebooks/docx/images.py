@@ -184,7 +184,7 @@ class Images(object):
                     img = IMG(src='images/%s' % src)
                     img.set('alt', alt or 'Image')
                     if link is not None:
-                        self.links.append((img, link))
+                        self.links.append((img, link, self.rid_map))
                     return img
 
     def drawing_to_html(self, drawing, page):
@@ -250,6 +250,9 @@ class Images(object):
         width = float(style.get('width', '100pt')[:-2])
 
         page_width = page.width - page.margin_left - page.margin_right
+        if page_width <= 0:
+            # Ignore margins
+            page_width = page.width
 
         hpos = get_hpos(anchor, page_width) + width/(2*page_width)
 

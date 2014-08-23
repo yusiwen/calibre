@@ -6,7 +6,7 @@ __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-from PyQt4.Qt import SIGNAL, QVariant, Qt
+from PyQt5.Qt import Qt
 
 from calibre.gui2.convert.look_and_feel_ui import Ui_Form
 from calibre.gui2.convert import Widget
@@ -47,13 +47,12 @@ class LookAndFeelWidget(Widget, Ui_Form):
                 ('left', _('Left align')),
                 ('justify', _('Justify text'))
                 ]:
-            self.opt_change_justification.addItem(text, QVariant(val))
+            self.opt_change_justification.addItem(text, (val))
         self.db, self.book_id = db, book_id
         self.initialize_options(get_option, get_help, db, book_id)
         self.opt_disable_font_rescaling.toggle()
         self.opt_disable_font_rescaling.toggle()
-        self.connect(self.button_font_key, SIGNAL('clicked()'),
-                self.font_key_wizard)
+        self.button_font_key.clicked.connect(self.font_key_wizard)
         self.opt_remove_paragraph_spacing.toggle()
         self.opt_remove_paragraph_spacing.toggle()
         self.opt_smarten_punctuation.stateChanged.connect(
@@ -65,7 +64,7 @@ class LookAndFeelWidget(Widget, Ui_Form):
 
     def get_value_handler(self, g):
         if g is self.opt_change_justification:
-            ans = unicode(g.itemData(g.currentIndex()).toString())
+            ans = unicode(g.itemData(g.currentIndex()) or '')
             return ans
         if g is self.opt_filter_css:
             ans = set()
@@ -85,7 +84,7 @@ class LookAndFeelWidget(Widget, Ui_Form):
     def set_value_handler(self, g, val):
         if g is self.opt_change_justification:
             for i in range(g.count()):
-                c = unicode(g.itemData(i).toString())
+                c = unicode(g.itemData(i) or '')
                 if val == c:
                     g.setCurrentIndex(i)
                     break

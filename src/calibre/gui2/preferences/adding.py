@@ -7,7 +7,7 @@ __docformat__ = 'restructuredtext en'
 
 import os
 
-from PyQt4.Qt import Qt
+from PyQt5.Qt import Qt
 
 from calibre.gui2.preferences import ConfigWidgetBase, test_widget, \
     CommaSeparatedList, AbortCommit
@@ -38,6 +38,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         r('new_book_tags', prefs, setting=CommaSeparatedList)
         r('mark_new_books', prefs)
         r('auto_add_path', gprefs, restart_required=True)
+        r('auto_add_everything', gprefs, restart_required=True)
         r('auto_add_check_for_duplicates', gprefs)
         r('auto_add_auto_convert', gprefs)
 
@@ -119,7 +120,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
                             _('You do not have read/write permissions for '
                                 'the folder: %s')%path, show=True)
                     raise AbortCommit('invalid auto-add folder')
-                if not question_dialog(self, _('Are you sure'),
+                if not question_dialog(self, _('Are you sure?'),
                         _('<b>WARNING:</b> Any files you place in %s will be '
                             'automatically deleted after being added to '
                             'calibre. Are you sure?')%path):
@@ -135,7 +136,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         return changed or ret
 
 if __name__ == '__main__':
-    from PyQt4.Qt import QApplication
+    from PyQt5.Qt import QApplication
     app = QApplication([])
     test_widget('Import/Export', 'Adding')
 

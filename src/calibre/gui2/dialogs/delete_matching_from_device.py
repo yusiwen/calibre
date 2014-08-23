@@ -3,7 +3,7 @@ __copyright__ = '2008, Kovid Goyal kovid@kovidgoyal.net'
 __docformat__ = 'restructuredtext en'
 __license__   = 'GPL v3'
 
-from PyQt4.Qt import Qt, QDialog, QTableWidgetItem, QAbstractItemView
+from PyQt5.Qt import Qt, QDialog, QTableWidgetItem, QAbstractItemView
 
 from calibre import strftime
 from calibre.ebooks.metadata import authors_to_string, authors_to_sort_string, \
@@ -110,7 +110,7 @@ class DeleteMatchingFromDeviceDialog(QDialog, Ui_DeleteMatchingFromDeviceDialog)
         for row in range(self.table.rowCount()):
             if self.table.item(row, 0).checkState() == Qt.Unchecked:
                 continue
-            (model, id, path) = self.table.item(row, 0).data(Qt.UserRole).toPyObject()
+            (model, id, path) = self.table.item(row, 0).data(Qt.UserRole)
             path = unicode(path)
             self.result.append((model, id, path))
         return

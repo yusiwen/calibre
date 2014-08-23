@@ -8,7 +8,7 @@ Secure access to locked files from multiple processes.
 
 from calibre.constants import iswindows, __appname__, \
                               win32api, win32event, winerror, fcntl
-import time, atexit, os
+import time, atexit, os, stat, errno
 
 class LockError(Exception):
     pass
@@ -24,12 +24,12 @@ class WindowsExclFile(object):
             timeout -= 1
             try:
                 self._handle = w.CreateFile(path,
-                    w.GENERIC_READ|w.GENERIC_WRITE, # Open for reading and writing
-                    0, # Open exclusive
-                    None, # No security attributes
-                    w.OPEN_ALWAYS, # If file does not exist, create it
-                    w.FILE_ATTRIBUTE_NORMAL, #Normal attributes
-                    None, #No template file
+                    w.GENERIC_READ|w.GENERIC_WRITE,  # Open for reading and writing
+                    0,  # Open exclusive
+                    None,  # No security attributes, ensures handle is not inherited by children
+                    w.OPEN_ALWAYS,  # If file does not exist, create it
+                    w.FILE_ATTRIBUTE_NORMAL,  # Normal attributes
+                    None,  # No template file
                 )
                 break
             except pywintypes.error as err:
@@ -38,6 +38,8 @@ class WindowsExclFile(object):
                     continue
                 else:
                     raise
+        if not hasattr(self, '_handle'):
+            raise LockError('Failed to open exclusive file: %s' % path)
 
     def seek(self, amt, frm=0):
         import win32file as w
@@ -67,7 +69,8 @@ class WindowsExclFile(object):
         import win32file as w
         sz = w.GetFileSize(self._handle)
         max = sz - self.tell()
-        if bytes < 0: bytes = max
+        if bytes < 0:
+            bytes = max
         bytes = min(max, bytes)
         if bytes < 1:
             return ''
@@ -102,6 +105,30 @@ class WindowsExclFile(object):
     def closed(self):
         return self._handle is None
 
+def unix_open(path):
+    # We cannot use open(a+b) directly because Fedora apparently ships with a
+    # broken libc that causes seek(0) followed by truncate() to not work for
+    # files with O_APPEND set. We also use O_CLOEXEC when it is available,
+    # to ensure there are no races.
+    flags = os.O_RDWR | os.O_CREAT
+    from calibre.constants import plugins
+    speedup = plugins['speedup'][0]
+    has_cloexec = False
+    if hasattr(speedup, 'O_CLOEXEC'):
+        try:
+            fd = os.open(path, flags | speedup.O_CLOEXEC, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+            has_cloexec = True
+        except EnvironmentError as err:
+            if getattr(err, 'errno', None) == errno.EINVAL:  # Kernel does not support O_CLOEXEC
+                fd = os.open(path, flags, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+            else:
+                raise
+    else:
+        fd = os.open(path, flags, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+
+    if not has_cloexec:
+        fcntl.fcntl(fd, fcntl.F_SETFD, fcntl.FD_CLOEXEC)
+    return os.fdopen(fd, 'r+b')
 
 class ExclusiveFile(object):
 
@@ -110,13 +137,13 @@ class ExclusiveFile(object):
         self.timeout = timeout
 
     def __enter__(self):
-        self.file  =  WindowsExclFile(self.path, self.timeout) if iswindows else open(self.path, 'a+b')
+        self.file = WindowsExclFile(self.path, self.timeout) if iswindows else unix_open(self.path)
         self.file.seek(0)
         timeout = self.timeout
         if not iswindows:
             while self.timeout < 0 or timeout >= 0:
                 try:
-                    fcntl.lockf(self.file.fileno(), fcntl.LOCK_EX|fcntl.LOCK_NB)
+                    fcntl.flock(self.file.fileno(), fcntl.LOCK_EX|fcntl.LOCK_NB)
                     break
                 except IOError:
                     time.sleep(1)
@@ -128,6 +155,31 @@ class ExclusiveFile(object):
 
     def __exit__(self, type, value, traceback):
         self.file.close()
+
+def test_exclusive_file(path=None):
+    if path is None:
+        import tempfile
+        f = os.path.join(tempfile.gettempdir(), 'test-exclusive-file')
+        with ExclusiveFile(f):
+            # Try same process lock
+            try:
+                with ExclusiveFile(f, timeout=1):
+                    raise LockError("ExclusiveFile failed to prevent multiple uses in the same process!")
+            except LockError:
+                pass
+            # Try different process lock
+            from calibre.utils.ipc.simple_worker import fork_job
+            err = fork_job('calibre.utils.lock', 'test_exclusive_file', (f,))['result']
+            if err is not None:
+                raise LockError('ExclusiveFile failed with error: %s' % err)
+    else:
+        try:
+            with ExclusiveFile(path, timeout=1):
+                raise Exception('ExclusiveFile failed to prevent multiple uses in different processes!')
+        except LockError:
+            pass
+        except Exception as err:
+            return str(err)
 
 def _clean_lock_file(file):
     try:

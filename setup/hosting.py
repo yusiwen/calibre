@@ -7,9 +7,9 @@ __license__   = 'GPL v3'
 __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import os, time, sys, traceback, subprocess, urllib2, re, base64, httplib, shutil
+import os, time, sys, traceback, subprocess, urllib2, re, base64, httplib, shutil, glob
 from argparse import ArgumentParser, FileType
-from subprocess import check_call
+from subprocess import check_call, CalledProcessError, check_output
 from tempfile import NamedTemporaryFile
 from collections import OrderedDict
 
@@ -98,7 +98,7 @@ class Base(object):  # {{{
         print('_'*50)
         sys.stdout.flush()
 
-#}}}
+# }}}
 
 class GoogleCode(Base):  # {{{
 
@@ -164,7 +164,7 @@ class GoogleCode(Base):  # {{{
                 fname.endswith('.zip') else 'Installer')
         ext = os.path.splitext(fname)[1][1:]
         op  = 'OpSys-'+{'msi':'Windows','exe':'Windows',
-                'dmg':'OSX','bz2':'Linux','xz':'All'}[ext]
+                'dmg':'OSX','txz':'Linux','xz':'All'}[ext]
         desc = self.files[fname]
         start = time.time()
         for i in range(retries):
@@ -445,7 +445,7 @@ def generate_index():  # {{{
                 if osx:
                     body.append('<dt>Apple Mac</dt><dd><a href="{0}" title="{1}">{1}</a></dd>'.format(
                         osx[0], 'OS X Disk Image (.dmg)'))
-                linux = [x for x in files if x.endswith('.bz2')]
+                linux = [x for x in files if x.endswith('.txz') or x.endswith('tar.bz2')]
                 if linux:
                     linux = ['<li><a href="{0}" title="{1}">{1}</a></li>'.format(
                         x, 'Linux 64-bit binary' if 'x86_64' in x else 'Linux 32-bit binary')
@@ -466,8 +466,10 @@ def generate_index():  # {{{
 
 # }}}
 
+SERVER_BASE = '/srv/download/'
+
 def upload_to_servers(files, version):  # {{{
-    base = '/srv/download/'
+    base = SERVER_BASE
     dest = os.path.join(base, version)
     if not os.path.exists(dest):
         os.mkdir(dest)
@@ -509,13 +511,32 @@ def upload_to_servers(files, version):  # {{{
 def upload_to_dbs(files, version):  # {{{
     print('Uploading to fosshub.com')
     sys.stdout.flush()
-    server = 'mirror1.fosshub.com'
+    server = 'mirror10.fosshub.com'
     rdir = 'release/'
-    check_call(['ssh', 'kovid@%s' % server, 'rm -f release/*'])
+    def run_ssh(command, func=check_call):
+        cmd = ['ssh', '-x', 'kovid@%s' % server, command]
+        try:
+            return func(cmd)
+        except CalledProcessError as err:
+            # fosshub is being a little flaky sshing into it is failing the first
+            # time, needing a retry
+            if err.returncode != 255:
+                raise
+            return func(cmd)
+
+    old_files = set(run_ssh('ls ' + rdir, func=check_output).decode('utf-8').split())
+    if len(files) < 7:
+        existing = set(map(os.path.basename, files))
+        # fosshub does not support partial re-uploads
+        for f in glob.glob('%s/%s/calibre-*' % (SERVER_BASE, version)):
+            if os.path.basename(f) not in existing:
+                files[f] = None
+
     for x in files:
         start = time.time()
         print ('Uploading', x)
         sys.stdout.flush()
+        old_files.discard(os.path.basename(x))
         for i in range(5):
             try:
                 check_call(['rsync', '-h', '-z', '--progress', '-e', 'ssh -x', x,
@@ -530,7 +551,10 @@ def upload_to_dbs(files, version):  # {{{
                 break
         print ('Uploaded in', int(time.time() - start), 'seconds\n\n')
         sys.stdout.flush()
-    check_call(['ssh', 'kovid@%s' % server, '/home/kovid/uploadFiles'])
+
+    if old_files:
+        run_ssh('rm -f %s' % (' '.join(rdir + x for x in old_files)))
+    run_ssh('/home/kovid/uploadFiles')
 # }}}
 
 # CLI {{{
@@ -565,7 +589,7 @@ def cli_parser():
             epilog=epilog)
     cron = subparsers.add_parser('cron', help='Call script from cron')
     subparsers.add_parser('calibre', help='Upload to calibre file servers')
-    subparsers.add_parser('dbs', help='Upload to downloadbestsoftware.com')
+    subparsers.add_parser('dbs', help='Upload to fosshub.com')
 
     a = gc.add_argument
 
@@ -636,6 +660,3 @@ def main(args=None):
 if __name__ == '__main__':
     main()
 # }}}
-
-
-

@@ -19,6 +19,7 @@ from calibre.ebooks.oeb.base import XPath, XHTML_NS, XHTML, xml2text, urldefrag
 from calibre.library.comments import comments_to_html
 from calibre.utils.date import is_date_undefined
 from calibre.ebooks.chardet import strip_encoding_declarations
+from calibre.ebooks.metadata import fmt_sidx
 
 JACKET_XPATH = '//h:meta[@name="calibre-content" and @content="jacket"]'
 
@@ -91,7 +92,7 @@ class Jacket(object):
 
         root = render_jacket(mi, self.opts.output_profile,
                 alt_title=title, alt_tags=tags,
-                alt_comments=comments)
+                alt_comments=comments, rescale_fonts=True)
         id, href = self.oeb.manifest.generate('calibre_jacket', 'jacket.xhtml')
 
         jacket = self.oeb.manifest.add(id, href, guess_type(href)[0], data=root)
@@ -142,10 +143,23 @@ def get_rating(rating, rchar, e_rchar):
     ans = ("%s%s") % (rchar * int(num), e_rchar * (5 - int(num)))
     return ans
 
+class Series(unicode):
+
+    def __new__(self, series, series_index):
+        series = roman = escape(series or u'')
+        if series and series_index is not None:
+            roman = _('Number {1} of <em>{0}</em>').format(
+                escape(series), escape(fmt_sidx(series_index, use_roman=True)))
+            series = escape(series + ' [%s]'%fmt_sidx(series_index, use_roman=False))
+        s = unicode.__new__(self, series)
+        s.roman = roman
+        return s
+
 def render_jacket(mi, output_profile,
         alt_title=_('Unknown'), alt_tags=[], alt_comments='',
-        alt_publisher=('')):
+        alt_publisher=(''), rescale_fonts=False):
     css = P('jacket/stylesheet.css', data=True).decode('utf-8')
+    template = P('jacket/template.xhtml', data=True).decode('utf-8')
 
     try:
         title_str = mi.title if mi.title else alt_title
@@ -153,12 +167,7 @@ def render_jacket(mi, output_profile,
         title_str = _('Unknown')
     title = '<span class="title">%s</span>' % (escape(title_str))
 
-    series = escape(mi.series if mi.series else '')
-    if mi.series and mi.series_index is not None:
-        series += escape(' [%s]'%mi.format_series_index())
-    if not mi.series:
-        series = ''
-
+    series = Series(mi.series, mi.series_index)
     try:
         publisher = mi.publisher if mi.publisher else alt_publisher
     except:
@@ -227,8 +236,7 @@ def render_jacket(mi, output_profile,
         args['_genre'] = args.get('_genre', '{_genre}')
 
         formatter = SafeFormatter()
-        generated_html = formatter.format(P('jacket/template.xhtml',
-                data=True).decode('utf-8'), **args)
+        generated_html = formatter.format(template, **args)
 
         # Post-process the generated html to strip out empty header items
 
@@ -268,6 +276,24 @@ def render_jacket(mi, output_profile,
         except:
             root = etree.fromstring(generate_html(''),
                 parser=RECOVER_PARSER)
+    if rescale_fonts:
+        # We ensure that the conversion pipeline will set the font sizes for
+        # text in the jacket to the same size as the font sizes for the rest of
+        # the text in the book. That means that as long as the jacket uses
+        # relative font sizes (em or %), the post conversion font size will be
+        # the same as for text in the main book. So text with size x em will
+        # be rescaled to the same value in both the jacket and the main content.
+        #
+        # We cannot use calibre_rescale_100 on the body tag as that will just
+        # give the body tag a font size of 1em, which is useless.
+        for body in root.xpath('//*[local-name()="body"]'):
+            fw = body.makeelement(XHTML('div'))
+            fw.set('class', 'calibre_rescale_100')
+            for child in body:
+                fw.append(child)
+            body.append(fw)
+    from calibre.ebooks.oeb.polish.pretty import pretty_html_tree
+    pretty_html_tree(None, root)
     return root
 
 # }}}

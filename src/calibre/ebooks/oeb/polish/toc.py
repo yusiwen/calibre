@@ -9,14 +9,20 @@ __docformat__ = 'restructuredtext en'
 
 import re
 from urlparse import urlparse
-from collections import deque, Counter
+from collections import Counter, OrderedDict
 from functools import partial
+from operator import itemgetter
 
 from lxml import etree
+from lxml.builder import ElementMaker
 
 from calibre import __version__
-from calibre.ebooks.oeb.base import XPath, uuid_id, xml2text, NCX, NCX_NS, XML, XHTML
-from calibre.ebooks.oeb.polish.container import guess_type
+from calibre.ebooks.oeb.base import XPath, uuid_id, xml2text, NCX, NCX_NS, XML, XHTML, XHTML_NS, serialize
+from calibre.ebooks.oeb.polish.errors import MalformedMarkup
+from calibre.ebooks.oeb.polish.utils import guess_type
+from calibre.ebooks.oeb.polish.opf import set_guide_item, get_book_language
+from calibre.ebooks.oeb.polish.pretty import pretty_html_tree
+from calibre.translations.dynamic import translate
 from calibre.utils.localization import get_lang, canonicalize_lang, lang_as_iso639_1
 
 ns = etree.FunctionNamespace('calibre_xpath_extensions')
@@ -43,6 +49,16 @@ class TOC(object):
     def remove(self, child):
         self.children.remove(child)
         child.parent = None
+
+    def remove_from_parent(self):
+        if self.parent is None:
+            return
+        idx = self.parent.children.index(self)
+        for child in reversed(self.children):
+            child.parent = self.parent
+            self.parent.children.insert(idx, child)
+        self.parent.children.remove(self)
+        self.parent = None
 
     def __iter__(self):
         for c in self.children:
@@ -168,11 +184,12 @@ def find_existing_toc(container):
 
 def get_toc(container, verify_destinations=True):
     toc = find_existing_toc(container)
-    if toc is None:
+    if toc is None or not container.has_name(toc):
         ans = TOC()
-        ans.lang = ans.uid = None
+        ans.lang = ans.uid = ans.toc_file_name = None
         return ans
     ans = parse_ncx(container, toc)
+    ans.toc_file_name = toc
     if verify_destinations:
         verify_toc_destinations(container, ans)
     return ans
@@ -200,16 +217,60 @@ def elem_to_toc_text(elem):
         text = _('(Untitled)')
     return text
 
+def item_at_top(elem):
+    try:
+        body = XPath('//h:body')(elem.getroottree().getroot())[0]
+    except (TypeError, IndexError, KeyError, AttributeError):
+        return False
+    tree = body.getroottree()
+    path = tree.getpath(elem)
+    for el in body.iterdescendants(etree.Element):
+        epath = tree.getpath(el)
+        if epath == path:
+            break
+        try:
+            if el.tag.endswith('}img') or (el.text and el.text.strip()):
+                return False
+        except:
+            return False
+        if not path.startswith(epath):
+            # Only check tail of non-parent elements
+            if el.tail and el.tail.strip():
+                return False
+    return True
+
 def from_xpaths(container, xpaths):
+    '''
+    Generate a Table of Contents from a list of XPath expressions. Each
+    expression in the list corresponds to a level of the generate ToC. For
+    example: :code:`['//h:h1', '//h:h2', '//h:h3']` will generate a three level
+    table of contents from the ``<h1>``, ``<h2>`` and ``<h3>`` tags.
+    '''
     tocroot = TOC()
     xpaths = [XPath(xp) for xp in xpaths]
     level_prev = {i+1:None for i in xrange(len(xpaths))}
     level_prev[0] = tocroot
 
+    # Find those levels that have no elements in all spine items
+    maps = OrderedDict()
+    empty_levels = {i+1 for i, xp in enumerate(xpaths)}
     for spinepath in container.spine_items:
         name = container.abspath_to_name(spinepath)
         root = container.parsed(name)
-        level_item_map = {i+1:frozenset(xp(root)) for i, xp in enumerate(xpaths)}
+        level_item_map = maps[name] = {i+1:frozenset(xp(root)) for i, xp in enumerate(xpaths)}
+        for lvl, elems in level_item_map.iteritems():
+            if elems:
+                empty_levels.discard(lvl)
+    # Remove empty levels from all level_maps
+    if empty_levels:
+        for name, lmap in tuple(maps.iteritems()):
+            lmap = {lvl:items for lvl, items in lmap.iteritems() if lvl not in empty_levels}
+            lmap = sorted(lmap.iteritems(), key=itemgetter(0))
+            lmap = {i+1:items for i, (l, items) in enumerate(lmap)}
+            maps[name] = lmap
+
+    for name, level_item_map in maps.iteritems():
+        root = container.parsed(name)
         item_level_map = {e:i for i, elems in level_item_map.iteritems() for e in elems}
         item_dirtied = False
 
@@ -222,7 +283,10 @@ def from_xpaths(container, xpaths):
                 plvl -= 1
                 parent = level_prev[plvl]
             lvl = plvl + 1
-            dirtied, elem_id = ensure_id(item)
+            if item_at_top(item):
+                dirtied, elem_id = False, None
+            else:
+                dirtied, elem_id = ensure_id(item)
             text = elem_to_toc_text(item)
             item_dirtied = dirtied or item_dirtied
             toc = parent.add(text, name, elem_id)
@@ -237,6 +301,9 @@ def from_xpaths(container, xpaths):
     return tocroot
 
 def from_links(container):
+    '''
+    Generate a Table of Contents from links in the book.
+    '''
     toc = TOC()
     link_path = XPath('//h:a[@href]')
     seen_titles, seen_dests = set(), set()
@@ -280,6 +347,9 @@ def find_text(node):
                 return text
 
 def from_files(container):
+    '''
+    Generate a Table of Contents from files in the book.
+    '''
     toc = TOC()
     for i, spinepath in enumerate(container.spine_items):
         name = container.abspath_to_name(spinepath)
@@ -295,19 +365,36 @@ def from_files(container):
         toc.add(text, name)
     return toc
 
-def add_id(container, name, loc):
-    root = container.parsed(name)
-    body = root.xpath('//*[local-name()="body"]')[0]
-    locs = deque(loc)
-    node = body
-    while locs:
+def node_from_loc(root, locs, totals=None):
+    node = root.xpath('//*[local-name()="body"]')[0]
+    for i, loc in enumerate(locs):
         children = tuple(node.iterchildren(etree.Element))
-        node = children[locs[0]]
-        locs.popleft()
+        if totals is not None and totals[i] != len(children):
+            raise MalformedMarkup()
+        node = children[loc]
+    return node
+
+def add_id(container, name, loc, totals=None):
+    root = container.parsed(name)
+    try:
+        node = node_from_loc(root, loc, totals=totals)
+    except MalformedMarkup:
+        # The webkit HTML parser and the container parser have yielded
+        # different node counts, this can happen if the file is valid XML
+        # but contains constructs like nested <p> tags. So force parse it
+        # with the HTML 5 parser and try again.
+        raw = container.raw_data(name)
+        root = container.parse_xhtml(raw, fname=name, force_html5_parse=True)
+        try:
+            node = node_from_loc(root, loc, totals=totals)
+        except MalformedMarkup:
+            raise MalformedMarkup(_('The file %s has malformed markup. Try running the Fix HTML tool'
+                                    ' before editing.') % name)
+        container.replace(name, root)
+
     node.set('id', node.get('id', uuid_id()))
     container.commit_item(name, keep_parsed=True)
     return node.get('id')
-
 
 def create_ncx(toc, to_href, btitle, lang, uid):
     lang = lang.replace('_', '-')
@@ -386,4 +473,103 @@ def commit_toc(container, toc, lang=None, uid=None):
     root = create_ncx(toc, to_href, title, lang, uid)
     container.replace(tocname, root)
     container.pretty_print.add(tocname)
+
+def remove_names_from_toc(container, names):
+    toc = get_toc(container)
+    if len(toc) == 0:
+        return False
+    remove = []
+    names = frozenset(names)
+    for node in toc.iterdescendants():
+        if node.dest in names:
+            remove.append(node)
+    if remove:
+        for node in reversed(remove):
+            node.remove_from_parent()
+        commit_toc(container, toc)
+        return True
+    return False
+
+def find_inline_toc(container):
+    for name, linear in container.spine_names:
+        if container.parsed(name).xpath('//*[local-name()="body" and @id="calibre_generated_inline_toc"]'):
+            return name
+
+def create_inline_toc(container, title=None):
+    '''
+    Create an inline (HTML) Table of Contents from an existing NCX table of contents.
+
+    :param title: The title for this table of contents.
+    '''
+    lang = get_book_language(container)
+    default_title = 'Table of Contents'
+    if lang:
+        lang = lang_as_iso639_1(lang) or lang
+        default_title = translate(lang, default_title)
+    title = title or default_title
+    toc = get_toc(container)
+    if len(toc) == 0:
+        return None
+    toc_name = find_inline_toc(container)
+
+    def process_node(html_parent, toc, level=1, indent='  ', style_level=2):
+        li = html_parent.makeelement(XHTML('li'))
+        li.tail = '\n'+ (indent*level)
+        html_parent.append(li)
+        name, frag = toc.dest, toc.frag
+        href = '#'
+        if name:
+            href = container.name_to_href(name, toc_name)
+            if frag:
+                href += '#' + frag
+        a = li.makeelement(XHTML('a'), href=href)
+        a.text = toc.title
+        li.append(a)
+        if len(toc) > 0:
+            parent = li.makeelement(XHTML('ul'))
+            parent.set('class', 'level%d' % (style_level))
+            li.append(parent)
+            a.tail = '\n\n' + (indent*(level+2))
+            parent.text = '\n'+(indent*(level+3))
+            parent.tail = '\n\n' + (indent*(level+1))
+            for child in toc:
+                process_node(parent, child, level+3, style_level=style_level + 1)
+            parent[-1].tail = '\n' + (indent*(level+2))
+
+    E = ElementMaker(namespace=XHTML_NS, nsmap={None:XHTML_NS})
+    html = E.html(
+        E.head(
+            E.title(title),
+            E.style('''
+                li { list-style-type: none; padding-left: 2em; margin-left: 0}
+                a { text-decoration: none }
+                a:hover { color: red }''', type='text/css'),
+        ),
+        E.body(
+            E.h2(title),
+            E.ul(),
+            id="calibre_generated_inline_toc",
+        )
+    )
+
+    name = toc_name
+    ul = html[1][1]
+    ul.set('class', 'level1')
+    for child in toc:
+        process_node(ul, child)
+    if lang:
+        html.set('lang', lang)
+    pretty_html_tree(container, html)
+    raw = serialize(html, 'text/html')
+    if name is None:
+        name, c = 'toc.xhtml', 0
+        while container.has_name(name):
+            c += 1
+            name = 'toc%d.xhtml' % c
+        container.add_file(name, raw, spine_index=0)
+    else:
+        with container.open(name, 'wb') as f:
+            f.write(raw)
+    set_guide_item(container, 'toc', title, name, frag='calibre_generated_inline_toc')
+    return name
 

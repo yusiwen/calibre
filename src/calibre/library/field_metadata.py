@@ -83,7 +83,7 @@ def _builtin_field_metadata():
                            'datatype':'series',
                            'is_multiple':{},
                            'kind':'field',
-                           'name':ngettext('Series', 'Series', 2),
+                           'name':ngettext('Series', 'Series', 1),
                            'search_terms':['series'],
                            'is_custom':False,
                            'is_category':True,
@@ -107,7 +107,7 @@ def _builtin_field_metadata():
                            'datatype':'text',
                            'is_multiple':{},
                            'kind':'field',
-                           'name':_('Publishers'),
+                           'name':_('Publisher'),
                            'search_terms':['publisher'],
                            'is_custom':False,
                            'is_category':True,
@@ -209,7 +209,7 @@ def _builtin_field_metadata():
                            'is_multiple':{},
                            'kind':'field',
                            'name':None,
-                           'search_terms':[],
+                           'search_terms':['id'],
                            'is_custom':False,
                            'is_category':False,
                            'is_csp': False}),
@@ -329,7 +329,7 @@ def _builtin_field_metadata():
                            'is_multiple':{},
                            'kind':'field',
                            'name':None,
-                           'search_terms':[],
+                           'search_terms':['uuid'],
                            'is_custom':False,
                            'is_category':False,
                            'is_csp': False}),
@@ -452,7 +452,7 @@ class FieldMetadata(dict):
         return [k for k in self._tb_cats.keys()
                 if self._tb_cats[k]['kind']=='field' and
                    self._tb_cats[k]['datatype'] is not None and
-                   k not in ('au_map', 'marked', 'ondevice', 'cover') and
+                   k not in ('au_map', 'marked', 'ondevice', 'cover', 'series_sort') and
                    not self.is_series_index(k)]
 
     def standard_field_keys(self):
@@ -504,9 +504,12 @@ class FieldMetadata(dict):
         return [k for k in self._tb_cats.iterkeys() if self.is_ignorable_field(k)]
 
     def is_series_index(self, key):
-        m = self[key]
-        return (m['datatype'] == 'float' and key.endswith('_index') and
-                key[:-6] in self)
+        try:
+            m = self._tb_cats[key]
+            return (m['datatype'] == 'float' and key.endswith('_index') and
+                    key[:-6] in self._tb_cats)
+        except (KeyError, ValueError, TypeError, AttributeError):
+            return False
 
     def key_to_label(self, key):
         if 'label' not in self._tb_cats[key]:

@@ -9,7 +9,7 @@ __docformat__ = 'restructuredtext en'
 
 from operator import attrgetter
 
-from PyQt4.Qt import (QAbstractTableModel, Qt, QAbstractListModel, QWidget,
+from PyQt5.Qt import (QAbstractTableModel, Qt, QAbstractListModel, QWidget,
         pyqtSignal, QVBoxLayout, QDialogButtonBox, QFrame, QLabel, QIcon)
 
 from calibre.gui2.preferences import ConfigWidgetBase, test_widget
@@ -17,7 +17,7 @@ from calibre.gui2.preferences.metadata_sources_ui import Ui_Form
 from calibre.ebooks.metadata.sources.prefs import msprefs
 from calibre.customize.ui import (all_metadata_plugins, is_disabled,
         enable_plugin, disable_plugin, default_disabled_plugins)
-from calibre.gui2 import NONE, error_dialog, question_dialog
+from calibre.gui2 import error_dialog, question_dialog
 
 class SourcesModel(QAbstractTableModel):  # {{{
 
@@ -30,11 +30,12 @@ class SourcesModel(QAbstractTableModel):  # {{{
         self.cover_overrides = {}
 
     def initialize(self):
+        self.beginResetModel()
         self.plugins = list(all_metadata_plugins())
         self.plugins.sort(key=attrgetter('name'))
         self.enabled_overrides = {}
         self.cover_overrides = {}
-        self.reset()
+        self.endResetModel()
 
     def rowCount(self, parent=None):
         return len(self.plugins)
@@ -48,16 +49,16 @@ class SourcesModel(QAbstractTableModel):  # {{{
                 return _('Source')
             if section == 1:
                 return _('Cover priority')
-        return NONE
+        return None
 
     def data(self, index, role):
         try:
             plugin = self.plugins[index.row()]
         except:
-            return NONE
+            return None
         col = index.column()
 
-        if role == Qt.DisplayRole:
+        if role in (Qt.DisplayRole, Qt.EditRole):
             if col == 0:
                 return plugin.name
             elif col == 1:
@@ -76,7 +77,7 @@ class SourcesModel(QAbstractTableModel):  # {{{
             if plugin.is_configured():
                 return base + _('This source is configured and ready to go')
             return base + _('This source needs configuration')
-        return NONE
+        return None
 
     def setData(self, index, val, role):
         try:
@@ -86,24 +87,23 @@ class SourcesModel(QAbstractTableModel):  # {{{
         col = index.column()
         ret = False
         if col == 0 and role == Qt.CheckStateRole:
-            val, ok = val.toInt()
-            if ok:
-                if val == Qt.Checked and 'Douban' in plugin.name:
-                    if not question_dialog(self.gui_parent,
-                        _('Are you sure?'), '<p>'+
-                        _('This plugin is useful only for <b>Chinese</b>'
-                            ' language books. It can return incorrect'
-                            ' results for books in English. Are you'
-                            ' sure you want to enable it?'),
-                        show_copy_button=False):
-                        return ret
-                self.enabled_overrides[plugin] = val
-                ret = True
+            if val == Qt.Checked and 'Douban' in plugin.name:
+                if not question_dialog(self.gui_parent,
+                    _('Are you sure?'), '<p>'+
+                    _('This plugin is useful only for <b>Chinese</b>'
+                        ' language books. It can return incorrect'
+                        ' results for books in English. Are you'
+                        ' sure you want to enable it?'),
+                    show_copy_button=False):
+                    return ret
+            self.enabled_overrides[plugin] = int(val)
+            ret = True
         if col == 1 and role == Qt.EditRole:
-            val, ok = val.toInt()
-            if ok:
-                self.cover_overrides[plugin] = val
+            try:
+                self.cover_overrides[plugin] = max(1, int(val))
                 ret = True
+            except (ValueError, TypeError):
+                pass
         if ret:
             self.dataChanged.emit(index, index)
         return ret
@@ -135,12 +135,13 @@ class SourcesModel(QAbstractTableModel):  # {{{
         self.cover_overrides = {}
 
     def restore_defaults(self):
+        self.beginResetModel()
         self.enabled_overrides = dict([(p, (Qt.Unchecked if p.name in
             default_disabled_plugins else Qt.Checked)) for p in self.plugins])
         self.cover_overrides = dict([(p,
             msprefs.defaults['cover_priorities'].get(p.name, 1))
                 for p in self.plugins])
-        self.reset()
+        self.endResetModel()
 
 # }}}
 
@@ -173,12 +174,13 @@ class FieldsModel(QAbstractListModel):  # {{{
         fields = set()
         for p in all_metadata_plugins():
             fields |= p.touched_fields
+        self.beginResetModel()
         self.fields = []
         for x in fields:
             if not x.startswith('identifier:') and x not in self.exclude:
                 self.fields.append(x)
         self.fields.sort(key=lambda x:self.descs.get(x, x))
-        self.reset()
+        self.endResetModel()
 
     def state(self, field, defaults=False):
         src = msprefs.defaults if defaults else msprefs
@@ -194,23 +196,26 @@ class FieldsModel(QAbstractListModel):  # {{{
             return self.descs.get(field, field)
         if role == Qt.CheckStateRole:
             return self.overrides.get(field, self.state(field))
-        return NONE
+        return None
 
     def flags(self, index):
-        ans = QAbstractTableModel.flags(self, index)
+        ans = QAbstractListModel.flags(self, index)
         return ans | Qt.ItemIsUserCheckable
 
     def restore_defaults(self):
+        self.beginResetModel()
         self.overrides = dict([(f, self.state(f, Qt.Checked)) for f in self.fields])
-        self.reset()
+        self.endResetModel()
 
     def select_all(self):
+        self.beginResetModel()
         self.overrides = dict([(f, Qt.Checked) for f in self.fields])
-        self.reset()
+        self.endResetModel()
 
     def clear_all(self):
+        self.beginResetModel()
         self.overrides = dict([(f, Qt.Unchecked) for f in self.fields])
-        self.reset()
+        self.endResetModel()
 
     def setData(self, index, val, role):
         try:
@@ -219,10 +224,8 @@ class FieldsModel(QAbstractListModel):  # {{{
             return False
         ret = False
         if role == Qt.CheckStateRole:
-            val, ok = val.toInt()
-            if ok:
-                self.overrides[field] = val
-                ret = True
+            self.overrides[field] = int(val)
+            ret = True
         if ret:
             self.dataChanged.emit(index, index)
         return ret
@@ -239,8 +242,9 @@ class FieldsModel(QAbstractListModel):  # {{{
                     else Qt.Checked)
 
     def select_user_defaults(self):
+        self.beginResetModel()
         self.overrides = dict([(f, self.user_default_state(f)) for f in self.fields])
-        self.reset()
+        self.endResetModel()
 
     def commit_user_defaults(self):
         default_ignored_fields = set([x for x in msprefs['user_default_ignore_fields'] if x not in
@@ -297,6 +301,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         r('swap_author_names', msprefs)
         r('fewer_tags', msprefs)
         r('find_first_edition_date', msprefs)
+        r('append_comments', msprefs)
 
         self.configure_plugin_button.clicked.connect(self.configure_plugin)
         self.sources_model = SourcesModel(self)
@@ -318,7 +323,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
     def configure_plugin(self):
         for index in self.sources_view.selectionModel().selectedRows():
             plugin = self.sources_model.data(index, Qt.UserRole)
-            if plugin is not NONE:
+            if plugin is not None:
                 return self.do_config(plugin)
         error_dialog(self, _('No source selected'),
                 _('No source selected, cannot configure.'), show=True)
@@ -356,7 +361,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         return ConfigWidgetBase.commit(self)
 
 if __name__ == '__main__':
-    from PyQt4.Qt import QApplication
+    from PyQt5.Qt import QApplication
     app = QApplication([])
     test_widget('Sharing', 'Metadata download')
 

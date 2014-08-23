@@ -12,7 +12,7 @@ import os, re, logging, copy, unicodedata
 from weakref import WeakKeyDictionary
 from xml.dom import SyntaxErr as CSSSyntaxError
 from cssutils.css import (CSSStyleRule, CSSPageRule, CSSFontFaceRule,
-        cssproperties)
+        cssproperties, CSSRule)
 from cssutils import (profile as cssprofiles, parseString, parseStyle, log as
         cssutils_log, CSSParser, profiles, replaceUrls)
 from lxml import etree
@@ -172,11 +172,7 @@ class Stylizer(object):
         basename = os.path.basename(path)
         cssname = os.path.splitext(basename)[0] + '.css'
         stylesheets = [html_css_stylesheet()]
-        head = xpath(tree, '/h:html/h:head')
-        if head:
-            head = head[0]
-        else:
-            head = []
+        style_tags = xpath(tree, '//*[local-name()="style" or local-name()="link"]')
 
         # Add cssutils parsing profiles from output_profile
         for profile in self.opts.output_profile.extra_css_modules:
@@ -187,7 +183,7 @@ class Stylizer(object):
         parser = CSSParser(fetcher=self._fetch_css_file,
                 log=logging.getLogger('calibre.css'))
         self.font_face_rules = []
-        for elem in head:
+        for elem in style_tags:
             if (elem.tag == XHTML('style') and
                 elem.get('type', CSS_MIME) in OEB_STYLES):
                 text = elem.text if elem.text else u''
@@ -220,6 +216,8 @@ class Stylizer(object):
                                 self.logger.warn('CSS @import of non-CSS file %r' % rule.href)
                                 continue
                             stylesheets.append(sitem.data)
+                    for rule in tuple(stylesheet.cssRules.rulesOfType(CSSRule.PAGE_RULE)):
+                        stylesheet.cssRules.remove(rule)
                     # Make links to resources absolute, since these rules will
                     # be folded into a stylesheet at the root
                     replaceUrls(stylesheet, item.abshref,
@@ -319,7 +317,7 @@ class Stylizer(object):
                     self.style(elem)._update_cssdict(cssdict)
         for elem in xpath(tree, '//h:*[@style]'):
             self.style(elem)._apply_style_attr(url_replacer=item.abshref)
-        num_pat = re.compile(r'\d+$')
+        num_pat = re.compile(r'[0-9.]+$')
         for elem in xpath(tree, '//h:img[@width or @height]'):
             style = self.style(elem)
             # Check if either height or width is not default

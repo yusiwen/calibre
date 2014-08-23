@@ -41,7 +41,7 @@ class Check(Command):
                     continue
                 if (f.endswith('.py') and f not in (
                         'feedparser.py', 'markdown.py') and
-                        'prs500/driver.py' not in y):
+                        'prs500/driver.py' not in y) and not f.endswith('_ui.py'):
                     yield y, mtime
                 if f.endswith('.coffee'):
                     yield y, mtime
@@ -80,7 +80,7 @@ class Check(Command):
         cPickle.dump(cache, open(self.CACHE, 'wb'), -1)
         wn_path = os.path.expanduser('~/work/servers/src/calibre_servers/main')
         if os.path.exists(wn_path):
-            sys.path.insert(0, wn_path)
+            sys.path.insert(0, self.d(self.d(wn_path))), sys.path.insert(0, wn_path)
             self.info('\tChecking Changelog...')
             os.environ['DJANGO_SETTINGS_MODULE'] = 'calibre_servers.status.settings'
             import whats_new

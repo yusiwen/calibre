@@ -12,8 +12,42 @@ __docformat__ = 'restructuredtext en'
 Test a binary calibre build to ensure that all needed binary images/libraries have loaded.
 '''
 
-import cStringIO
-from calibre.constants import plugins, iswindows
+import cStringIO, os, ctypes
+from calibre.constants import plugins, iswindows, islinux
+
+def test_dlls():
+    import win32api
+    base = win32api.GetDllDirectory()
+    errors = []
+    for x in os.listdir(base):
+        if x.lower().endswith('.dll'):
+            try:
+                ctypes.WinDLL(os.path.join(base, x))
+            except Exception as err:
+                errors.append('Failed to load DLL %s with error: %s' % (x, err))
+                print (errors[-1])
+    if errors:
+        print ('Loading %d dll(s) failed!' % len(errors))
+        raise SystemExit(1)
+    print ('DLLs OK!')
+
+
+def test_dbus():
+    import dbus
+    bus = dbus.SystemBus()
+    if not bus.list_names():
+        raise ValueError('Failed to list names on the system bus')
+    bus = dbus.SessionBus()
+    if not bus.list_names():
+        raise ValueError('Failed to list names on the session bus')
+    del bus
+    print ('dbus OK!')
+
+def test_regex():
+    import regex
+    if regex.findall(r'(?i)(a)(b)', 'ab cd AB 1a1b') != [('a', 'b'), ('A', 'B')]:
+        raise ValueError('regex module failed on a simple search')
+    print ('regex OK!')
 
 def test_html5lib():
     import html5lib.html5parser  # noqa
@@ -26,7 +60,7 @@ def test_plugins():
         if err or not mod:
             raise RuntimeError('Plugin %s failed to load with error: %s' %
                     (name, err))
-        print (mod, 'loaded')
+    print ('Loaded all plugins successfully!')
 
 def test_lxml():
     from lxml import etree
@@ -39,7 +73,13 @@ def test_lxml():
 
 def test_winutil():
     from calibre.devices.scanner import win_pnp_drives
-    matches = win_pnp_drives.scanner()
+    from calibre.constants import plugins
+    winutil = plugins['winutil'][0]
+    try:
+        matches = win_pnp_drives.scanner()
+    except winutil.DriveError:
+        print ('No removable drives found, skipping win_pnp_drives test!')
+        return
     if len(matches) < 1:
         raise RuntimeError('win_pnp_drives returned no drives')
     print ('win_pnp_drives OK!')
@@ -52,17 +92,32 @@ def test_sqlite():
         raise RuntimeError('Failed to load sqlite extension')
     print ('sqlite OK!')
 
+def test_apsw():
+    import apsw
+    conn = apsw.Connection(':memory:')
+    conn.close()
+    print ('apsw OK!')
+
 def test_qt():
-    from PyQt4.Qt import (QWebView, QDialog, QImageReader, QNetworkAccessManager)
+    from calibre.gui2 import Application
+    from PyQt5.Qt import (QImageReader, QNetworkAccessManager, QFontDatabase)
+    from PyQt5.QtWebKitWidgets import QWebView
+    os.environ.pop('DISPLAY', None)
+    app = Application([], headless=islinux)
+    if len(QFontDatabase().families()) < 5:
+        raise RuntimeError('The QPA headless plugin is not able to locate enough system fonts via fontconfig')
     fmts = set(map(unicode, QImageReader.supportedImageFormats()))
     testf = set(['jpg', 'png', 'mng', 'svg', 'ico', 'gif'])
     if testf.intersection(fmts) != testf:
         raise RuntimeError(
             "Qt doesn't seem to be able to load its image plugins")
-    QWebView, QDialog
+    QWebView()
+    del QWebView
     na = QNetworkAccessManager()
     if not hasattr(na, 'sslErrors'):
         raise RuntimeError('Qt not compiled with openssl')
+    del na
+    del app
     print ('Qt OK!')
 
 def test_imaging():
@@ -89,10 +144,15 @@ def test_unrar():
     test_basic()
     print ('Unrar OK!')
 
+def test_ssl():
+    import ssl
+    ssl
+    print ('SSL OK!')
+
 def test_icu():
-    from calibre.utils.icu import _icu_not_ok
-    if _icu_not_ok:
-        raise RuntimeError('ICU module not loaded/valid')
+    print ('Testing ICU')
+    from calibre.utils.icu_test import test_build
+    test_build()
     print ('ICU OK!')
 
 def test_wpd():
@@ -103,25 +163,78 @@ def test_wpd():
         print ('This computer does not have WPD')
     else:
         wpd.uninit()
+    print ('WPD OK!')
 
 def test_woff():
     from calibre.utils.fonts.woff import test
     test()
     print ('WOFF ok!')
 
+def test_magick():
+    from calibre.utils.magick import create_canvas
+    i = create_canvas(100, 100)
+    from calibre.gui2.tweak_book.editor.canvas import qimage_to_magick, magick_to_qimage
+    img = magick_to_qimage(i)
+    i = qimage_to_magick(img)
+    print ('magick OK!')
+
+def test_tokenizer():
+    print ('Testing tinycss tokenizer')
+    from tinycss.tokenizer import c_tokenize_flat
+    if c_tokenize_flat is None:
+        raise ValueError('tinycss C tokenizer not loaded')
+    from tinycss.tests.main import run_tests
+    run_tests(for_build=True)
+    print('tinycss tokenizer OK!')
+
+def test_netifaces():
+    import netifaces
+    if len(netifaces.interfaces()) < 1:
+        raise ValueError('netifaces could find no network interfaces')
+    print ('netifaces OK!')
+
+def test_psutil():
+    import psutil
+    psutil.Process(os.getpid())
+    print ('psutil OK!')
+
+def test_podofo():
+    from calibre.utils.podofo import test_podofo as dotest
+    dotest()
+
+def test_terminal():
+    import readline, curses
+    curses.setupterm()
+    del readline
+    print ('readline and curses OK!')
+
 def test():
+    if iswindows:
+        test_dlls()
     test_plugins()
     test_lxml()
+    test_ssl()
     test_sqlite()
+    test_apsw()
     test_imaging()
     test_unrar()
     test_icu()
     test_woff()
     test_qt()
     test_html5lib()
+    test_regex()
+    test_magick()
+    test_tokenizer()
+    test_netifaces()
+    test_psutil()
+    test_podofo()
     if iswindows:
-        test_winutil()
         test_wpd()
+        test_winutil()
+    else:
+        test_terminal()
+    if islinux:
+        test_dbus()
 
 if __name__ == '__main__':
     test()

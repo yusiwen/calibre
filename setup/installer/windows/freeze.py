@@ -1,27 +1,26 @@
 #!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
-from __future__ import with_statement
+from __future__ import with_statement, print_function
 
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import sys, os, shutil, glob, py_compile, subprocess, re, zipfile, time, textwrap
+from itertools import chain
 
 from setup import (Command, modules, functions, basenames, __version__,
     __appname__)
-from setup.build_environment import msvc, MT, RC, is64bit
+from setup.build_environment import (
+    msvc, MT, RC, is64bit, ICU as ICU_DIR, sw as SW, QT_DLLS, QMAKE, QT_PLUGINS, PYQT_MODULES)
 from setup.installer.windows.wix import WixMixIn
 
-ICU_DIR = os.environ.get('ICU_DIR', r'Q:\icu')
-OPENSSL_DIR = os.environ.get('OPENSSL_DIR', r'Q:\openssl')
-QT_DIR = os.environ.get('QT_DIR', 'Q:\\Qt\\current')
-QT_DLLS = ['Core', 'Gui', 'Network', 'Svg', 'WebKit', 'Xml', 'XmlPatterns']
-SW               = r'C:\cygwin\home\kovid\sw'
-IMAGEMAGICK = os.path.join(SW, 'build',
-                            'ImageMagick-*\\VisualMagick\\bin')
+OPENSSL_DIR = os.environ.get('OPENSSL_DIR', os.path.join(SW, 'private', 'openssl'))
+SW               = r'C:\cygwin64\home\kovid\sw'
+IMAGEMAGICK = os.path.join(SW, 'build', 'ImageMagick-*\\VisualMagick\\bin')
 CRT = r'C:\Microsoft.VC90.CRT'
-LZMA = r'Q:\easylzma\build\easylzma-0.0.8'
+LZMA = os.path.join(SW, *('private/easylzma/build/easylzma-0.0.8'.split('/')))
+QT_DIR = subprocess.check_output([QMAKE, '-query', 'QT_INSTALL_PREFIX']).decode('utf-8').strip()
 
 VERSION = re.sub('[a-z]\d+', '', __version__)
 WINVER = VERSION+'.0'
@@ -30,6 +29,7 @@ machine = 'X64' if is64bit else 'X86'
 DESCRIPTIONS = {
         'calibre' : 'The main calibre program',
         'ebook-viewer' : 'Viewer for all e-book formats',
+        'ebook-edit' : 'Edit e-books',
         'lrfviewer'    : 'Viewer for LRF files',
         'ebook-convert': 'Command line interface to the conversion/news download system',
         'ebook-meta'   : 'Command line interface for manipulating e-book metadata',
@@ -41,7 +41,6 @@ DESCRIPTIONS = {
         'calibre-server': 'Standalone calibre content server',
         'calibre-parallel': 'calibre worker process',
         'calibre-smtp' : 'Command line interface for sending books via email',
-        'calibre-recycle' : 'Helper program for deleting to recycle bin',
         'calibre-eject' : 'Helper program for ejecting connected reader devices',
 }
 
@@ -51,6 +50,50 @@ def walk(dir):
         for f in record[-1]:
             yield os.path.join(record[0], f)
 
+# Remove CRT dep from manifests {{{
+def get_manifest_from_dll(dll):
+    import win32api, pywintypes
+    LOAD_LIBRARY_AS_DATAFILE = 2
+    d = win32api.LoadLibraryEx(os.path.abspath(dll), 0, LOAD_LIBRARY_AS_DATAFILE)
+    try:
+        resources = win32api.EnumResourceNames(d, 24)
+    except pywintypes.error as err:
+        if err.winerror == 1812:
+            return None, None  # no resource section (probably a .pyd file)
+        raise
+    if resources:
+        return resources[0], win32api.LoadResource(d, 24, resources[0])
+    return None, None
+
+def update_manifest(dll, rnum, manifest):
+    import win32api
+    h = win32api.BeginUpdateResource(dll, 0)
+    win32api.UpdateResource(h, 24, rnum, manifest)
+    win32api.EndUpdateResource(h, 0)
+
+_crt_pat = re.compile(r'Microsoft\.VC\d+\.CRT')
+
+def remove_CRT_from_manifest(dll, log=print):
+    from lxml import etree
+    rnum, manifest = get_manifest_from_dll(dll)
+    if manifest is None:
+        return
+    root = etree.fromstring(manifest)
+    found = False
+    for ai in root.xpath('//*[local-name()="assemblyIdentity" and @name]'):
+        name = ai.get('name')
+        if _crt_pat.match(name):
+            p = ai.getparent()
+            pp = p.getparent()
+            pp.remove(p)
+            if len(pp) == 0:
+                pp.getparent().remove(pp)
+            found = True
+    if found:
+        manifest = etree.tostring(root, pretty_print=True)
+        update_manifest(dll, rnum, manifest)
+        log('\t', os.path.basename(dll))
+# }}}
 
 class Win32Freeze(Command, WixMixIn):
 
@@ -66,9 +109,13 @@ class Win32Freeze(Command, WixMixIn):
             help='Keep human readable site.py')
         parser.add_option('--verbose', default=0, action="count",
                 help="Be more verbose")
+        if not parser.has_option('--dont-strip'):
+            parser.add_option('-x', '--dont-strip', default=False,
+                action='store_true', help='Dont strip the generated binaries (no-op on windows)')
 
     def run(self, opts):
         self.SW = SW
+        self.portable_uncompressed_size = 0
         self.opts = opts
         self.src_root = self.d(self.SRC)
         self.base = self.j(self.d(self.SRC), 'build', 'winfrozen')
@@ -84,7 +131,6 @@ class Win32Freeze(Command, WixMixIn):
         self.initbase()
         self.build_launchers()
         self.build_eject()
-        self.build_recycle()
         self.add_plugins()
         self.freeze()
         self.embed_manifests()
@@ -102,25 +148,12 @@ class Win32Freeze(Command, WixMixIn):
         The dependency on the CRT is removed from the manifests of all DLLs.
         This allows the CRT loaded by the .exe files to be used instead.
         '''
-        search_pat = re.compile(r'(?is)<dependency>.*Microsoft\.VC\d+\.CRT')
-        repl_pat = re.compile(
-            r'(?is)<dependency>.*?Microsoft\.VC\d+\.CRT.*?</dependency>')
-
-        for dll in (glob.glob(self.j(self.dll_dir, '*.dll')) +
-                    glob.glob(self.j(self.plugins_dir, '*.pyd'))):
+        self.info('Removing CRT dependency from manifests of:')
+        for dll in chain(walk(self.dll_dir), walk(self.plugins_dir)):
             bn = self.b(dll)
-            with open(dll, 'rb') as f:
-                raw = f.read()
-            match = search_pat.search(raw)
-            if match is None:
+            if bn.lower().rpartition('.')[-1] not in {'dll', 'pyd'}:
                 continue
-            self.info('Removing CRT dependency from manifest of: %s'%bn)
-            # Blank out the bytes corresponding to the dependency specification
-            nraw = repl_pat.sub(lambda m: b' '*len(m.group()), raw)
-            if len(nraw) != len(raw) or nraw == raw:
-                raise Exception('Something went wrong with %s'%bn)
-            with open(dll, 'wb') as f:
-                f.write(nraw)
+            remove_CRT_from_manifest(dll, self.info)
 
     def initbase(self):
         if self.e(self.base):
@@ -175,17 +208,17 @@ class Win32Freeze(Command, WixMixIn):
             shutil.copy2(x, self.dll_dir)
         for x in glob.glob(self.j(ICU_DIR, 'source', 'lib', '*.dll')):
             shutil.copy2(x, self.dll_dir)
+
         for x in QT_DLLS:
-            x += '4.dll'
-            if not x.startswith('phonon'):
-                x = 'Qt'+x
             shutil.copy2(os.path.join(QT_DIR, 'bin', x), self.dll_dir)
         shutil.copy2(r'C:\windows\system32\python%s.dll'%self.py_ver,
                     self.dll_dir)
-        for x in os.walk(r'C:\Python%s\Lib'%self.py_ver):
-            for f in x[-1]:
+        for dirpath, dirnames, filenames in os.walk(r'C:\Python%s\Lib'%self.py_ver):
+            if os.path.basename(dirpath) == 'pythonwin':
+                continue
+            for f in filenames:
                 if f.lower().endswith('.dll'):
-                    f = self.j(x[0], f)
+                    f = self.j(dirpath, f)
                     shutil.copy2(f, self.dll_dir)
         shutil.copy2(
             r'C:\Python%(v)s\Lib\site-packages\pywin32_system32\pywintypes%(v)s.dll'
@@ -216,9 +249,12 @@ class Win32Freeze(Command, WixMixIn):
             if os.path.isdir(folder):
                 self.fix_pyd_bootstraps_in(folder)
 
-        for pat in (r'PyQt4\uic\port_v3', ):
+        for pat in (r'PyQt5\uic\port_v3', ):
             x = glob.glob(self.j(self.lib_dir, 'site-packages', pat))[0]
             shutil.rmtree(x)
+        pyqt = self.j(self.lib_dir, 'site-packages', 'PyQt5')
+        for x in {x for x in os.listdir(pyqt) if x.endswith('.pyd')} - PYQT_MODULES:
+            os.remove(self.j(pyqt, x))
 
         self.info('Adding calibre sources...')
         for x in glob.glob(self.j(self.SRC, '*')):
@@ -262,7 +298,7 @@ class Win32Freeze(Command, WixMixIn):
         qt_prefix = QT_DIR
         plugdir = self.j(qt_prefix, 'plugins')
         tdir = self.j(self.base, 'qt_plugins')
-        for d in ('imageformats', 'codecs', 'iconengines'):
+        for d in QT_PLUGINS:
             self.info('\t', d)
             imfd = os.path.join(plugdir, d)
             tg = os.path.join(tdir, d)
@@ -275,10 +311,9 @@ class Win32Freeze(Command, WixMixIn):
                 if not x.endswith('.dll'):
                     os.remove(self.j(dirpath, x))
 
-        print
-        print 'Adding third party dependencies'
+        self.info('\nAdding third party dependencies')
 
-        print '\tAdding misc binary deps'
+        self.info('\tAdding misc binary deps')
         bindir = os.path.join(SW, 'bin')
         for x in ('pdftohtml', 'pdfinfo', 'pdftoppm'):
             shutil.copy2(os.path.join(bindir, x+'.exe'), self.base)
@@ -334,7 +369,7 @@ class Win32Freeze(Command, WixMixIn):
     def embed_resources(self, module, desc=None, extra_data=None,
             product_description=None):
         icon_base = self.j(self.src_root, 'icons')
-        icon_map = {'calibre':'library', 'ebook-viewer':'viewer',
+        icon_map = {'calibre':'library', 'ebook-viewer':'viewer', 'ebook-edit':'ebook-edit',
                 'lrfviewer':'viewer', 'calibre-portable':'library'}
         file_type = 'DLL' if module.endswith('.dll') else 'APP'
         template = open(self.rc_template, 'rb').read()
@@ -408,7 +443,7 @@ class Win32Freeze(Command, WixMixIn):
 
     def build_portable_installer(self):
         zf = self.a(self.j('dist', 'calibre-portable-%s.zip.lz'%VERSION))
-        usz = os.path.getsize(zf)
+        usz = self.portable_uncompressed_size or os.path.getsize(zf)
         def cc(src, obj):
             cflags  = '/c /EHsc /MT /W4 /Ox /nologo /D_UNICODE /DUNICODE /DPSAPI_VERSION=1'.split()
             cflags.append(r'/I%s\include'%LZMA)
@@ -505,6 +540,7 @@ class Win32Freeze(Command, WixMixIn):
         with zipfile.ZipFile(name, 'w', zipfile.ZIP_STORED) as zf:
             self.add_dir_to_zip(zf, base, 'Calibre Portable')
 
+        self.portable_uncompressed_size = os.path.getsize(name)
         subprocess.check_call([LZMA + r'\bin\elzma.exe', '-9', '--lzip', name])
 
     def sign_installers(self):
@@ -544,21 +580,6 @@ class Win32Freeze(Command, WixMixIn):
                     zf.write(f, arcname)
         finally:
             os.chdir(cwd)
-
-    def build_recycle(self):
-        self.info('Building calibre-recycle.exe')
-        base = self.j(self.src_root, 'setup', 'installer', 'windows')
-        src = self.j(base, 'recycle.c')
-        obj = self.j(self.obj_dir, self.b(src)+'.obj')
-        cflags  = '/c /EHsc /MD /W3 /Ox /nologo /D_UNICODE'.split()
-        if self.newer(obj, src):
-            cmd = [msvc.cc] + cflags + ['/Fo'+obj, '/Tc'+src]
-            self.run_builder(cmd, show_output=True)
-        exe = self.j(self.base, 'calibre-recycle.exe')
-        cmd = [msvc.linker] + ['/MACHINE:'+machine,
-                '/SUBSYSTEM:CONSOLE', '/RELEASE',
-                '/OUT:'+exe] + [self.embed_resources(exe), obj, 'Shell32.lib']
-        self.run_builder(cmd)
 
     def build_eject(self):
         self.info('Building calibre-eject.exe')
@@ -652,7 +673,7 @@ class Win32Freeze(Command, WixMixIn):
                         # any extensions that use C++ exceptions must be loaded
                         # from files
                         'unrar.pyd', 'wpd.pyd', 'podofo.pyd',
-                        'progress_indicator.pyd',
+                        'progress_indicator.pyd', 'hunspell.pyd',
                         # As per this https://bugs.launchpad.net/bugs/1087816
                         # on some systems magick.pyd fails to load from memory
                         # on 64 bit
@@ -669,9 +690,12 @@ class Win32Freeze(Command, WixMixIn):
 
             sp = self.j(self.lib_dir, 'site-packages')
             # Special handling for PIL and pywin32
-            handled = set(['PIL.pth', 'pywin32.pth', 'PIL', 'win32'])
-            if not is64bit:
-                self.add_to_zipfile(zf, 'PIL', sp)
+            handled = set(['pywin32.pth', 'win32'])
+            pil_dir = glob.glob(self.j(sp, 'Pillow*', 'PIL'))[-1]
+            if is64bit:
+                # PIL can raise exceptions, which cause crashes on 64bit
+                shutil.copytree(pil_dir, self.j(self.dll_dir, 'PIL'))
+                handled.add(self.b(self.d(pil_dir)))
             base = self.j(sp, 'win32', 'lib')
             for x in os.listdir(base):
                 if os.path.splitext(x)[1] not in ('.exe',):
@@ -687,7 +711,10 @@ class Win32Freeze(Command, WixMixIn):
             handled.add('site.pyo')
 
             for d in self.get_pth_dirs(self.j(sp, 'easy-install.pth')):
-                handled.add(self.b(d))
+                hname = self.b(d)
+                if hname in handled:
+                    continue
+                handled.add(hname)
                 if os.path.basename(d).startswith('six-'):
                     continue  # We prefer the version bundled with calibre
                 for x in os.listdir(d):

@@ -45,13 +45,17 @@ static void show_detailed_error(LPCWSTR preamble, LPCWSTR msg, int code) {
 
 static void show_zip_error(LPCWSTR preamble, LPCWSTR msg, ZRESULT code) {
     LPWSTR buf;
+    char msgbuf[1024] = {0};
+
+    FormatZipMessage(code, msgbuf, 1024);
+
     buf = (LPWSTR)LocalAlloc(LMEM_ZEROINIT, sizeof(WCHAR)*
-            (wcslen(preamble) + wcslen(msg) + 80));
+            (wcslen(preamble) + wcslen(msg) + 1100));
 
     _snwprintf_s(buf, 
         LocalSize(buf) / sizeof(WCHAR), _TRUNCATE,
-        L"%s\r\n  %s %s (Error Code: %X)\r\n",
-        preamble, msg, code);
+        L"%s\r\n  %s (Error: %S)\r\n",
+        preamble, msg, msgbuf);
 
     show_error(buf);
     LocalFree(buf);
@@ -116,7 +120,7 @@ static BOOL unzip(HZIP zipf, int nitems, IProgressDialog *pd) {
         if (res != ZR_OK) { show_zip_error(L"Failed to get zip item", L"", res); return false;}
         
         res = UnzipItem(zipf, i, ze.name, 0, ZIP_FILENAME);
-        if (res != ZR_OK) { show_zip_error(L"Failed to extract zip item:", ze.name, res); return false;}
+        if (res != ZR_OK) { CloseZip(zipf); show_zip_error(L"Failed to extract zip item (is your disk full?):", ze.name, res); return false;}
 
         pd->SetLine(2, ze.name, true, NULL);
         pd->SetProgress(i, nitems);
@@ -136,7 +140,7 @@ static HANDLE temp_file(LPWSTR name) {
     if (res == 0) { show_last_error(L"Failed to create temporary file to decompress portable data"); return INVALID_HANDLE_VALUE; }
 
     h = CreateFile(name, GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (h == INVALID_HANDLE_VALUE) { show_last_error(L"Failed to open temp file t decomress portable data"); }
+    if (h == INVALID_HANDLE_VALUE) { show_last_error(L"Failed to open temp file to decompress portable data"); }
     return h;
 
 }
@@ -168,7 +172,9 @@ input_callback(void *ctx, void *buf, size_t * size)
    
     return 0;  
 }  
-  
+
+static int output_error_shown = 0;
+
 static size_t  
 output_callback(void *ctx, const void *buf, size_t size)  
 {  
@@ -178,6 +184,7 @@ output_callback(void *ctx, const void *buf, size_t size)
     if (size > 0) {  
         if (!WriteFile(ds->out, buf, size, &written, NULL)) {
             show_last_error(L"Failed to write uncompressed data to temp file");
+            output_error_shown = 1;
             return 0;
         }
         written = SetFilePointer(ds->out, 0, NULL, FILE_CURRENT);
@@ -205,8 +212,8 @@ static BOOL decompress(LPVOID src, DWORD src_sz, HANDLE out, IProgressDialog *pd
             (void *) &ds, ELZMA_lzip);
 
     if (rc != ELZMA_E_OK) {  
+        if (!output_error_shown) show_detailed_error(L"Failed to decompress portable data", L"", rc);
         elzma_decompress_free(&h);  
-        show_zip_error(L"Failed to decompress portable data", L"", rc);
         return false;  
     }
 
@@ -500,7 +507,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     int ret = 0, argc;
     HRESULT hr;
     LPWSTR tgt = NULL, dest = NULL, *argv, unpack_dir = NULL;
-    BOOL existing = false, launch = false;
+    BOOL existing = false, launch = false, automated = false;
     WCHAR buf[4*MAX_PATH] = {0}, mb_msg[4*MAX_PATH] = {0}, fdest[4*MAX_PATH] = {0};
 
     if (!load_data(&cdata, &csz)) return 0;
@@ -513,6 +520,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     if (argv == NULL) { show_last_error(L"Failed to get command line"); return 0; }
     if (argc > 1) {
         tgt = argv[1];
+        automated = true;
     } else {
         tgt = get_directory_from_user();
         if (tgt == NULL) goto end;
@@ -545,7 +553,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     } while (wcslen(fdest) > 58);
 
     // Confirm the user wants to upgrade
-    if (existing) {
+    if (existing && !automated) {
         _snwprintf_s(mb_msg, 4*MAX_PATH, _TRUNCATE, 
             L"An existing install of Calibre Portable was found at %s. Do you want to upgrade it?",
             fdest);
@@ -570,8 +578,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     // Move files from temp dir to the install dir
     if (!move_program()) goto end;
 
-    SetCurrentDirectoryW(L"..");
-
     _snwprintf_s(mb_msg, 4*MAX_PATH, _TRUNCATE, 
         L"Calibre Portable successfully installed to %s. Launch calibre?",
         fdest);
@@ -579,7 +585,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         L"Success", MB_ICONINFORMATION | MB_YESNO | MB_TOPMOST) == IDYES;
 
 end:
-    if (unpack_dir != NULL) { rmtree(unpack_dir); free(unpack_dir); }
+    if (unpack_dir != NULL) { SetCurrentDirectoryW(L".."); rmtree(unpack_dir); free(unpack_dir); }
     CoUninitialize();
     if (launch) launch_calibre();
     return 0;
