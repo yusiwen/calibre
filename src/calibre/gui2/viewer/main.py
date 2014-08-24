@@ -399,6 +399,10 @@ class EbookViewer(MainWindow):
                 self.view.document.page_position.set_pos(bm['pos'])
             else:
                 self.view.goto_bookmark(bm)
+                # Going to a bookmark does not call scrolled() so we update the
+                # page position explicitly. Use a timer to ensure it is
+                # accurate.
+                QTimer.singleShot(100, self.update_page_number)
         else:
             self.pending_bookmark = bm
             if spine_index < 0 or spine_index >= len(self.iterator.spine):
@@ -989,10 +993,7 @@ def main(args=sys.argv):
     opts, args = parser.parse_args(args)
     if getattr(opts, 'detach', False):
         detach_gui()
-    try:
-        open_at = float(opts.open_at)
-    except:
-        open_at = None
+    open_at = float(opts.open_at.replace(',', '.')) if opts.open_at else None
     override = 'calibre-ebook-viewer' if islinux else None
     app = Application(args, override_program_name=override)
     app.load_builtin_fonts()

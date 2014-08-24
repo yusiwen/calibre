@@ -21,7 +21,7 @@ from PyQt5.Qt import (Qt, QTimer, QHelpEvent, QAction,
                      QDialog, QSystemTrayIcon, QApplication)
 
 from calibre import prints, force_unicode
-from calibre.constants import __appname__, isosx, filesystem_encoding, DEBUG
+from calibre.constants import __appname__, isosx, filesystem_encoding, DEBUG, islinux, isbsd
 from calibre.utils.config import prefs, dynamic
 from calibre.utils.ipc.server import Server
 from calibre.db.legacy import LibraryDatabase
@@ -137,6 +137,7 @@ class Main(MainWindow, MainWindowMixin, DeviceMixin, EmailMixin,  # {{{
         SavedSearchBoxMixin, SearchRestrictionMixin, LayoutMixin, UpdateMixin,
         EbookDownloadMixin
         ):
+
     'The main GUI'
 
     proceed_requested = pyqtSignal(object, object)
@@ -271,7 +272,10 @@ class Main(MainWindow, MainWindowMixin, DeviceMixin, EmailMixin,  # {{{
         self.system_tray_icon.setToolTip('calibre')
         self.system_tray_icon.tooltip_requested.connect(
                 self.job_manager.show_tooltip)
-        if not config['systray_icon']:
+        systray_ok = config['systray_icon'] and not (islinux or isbsd)
+        # System tray icons are broken on linux, see
+        # https://bugreports.qt-project.org/browse/QTBUG-31762
+        if not systray_ok:
             self.system_tray_icon.hide()
         else:
             self.system_tray_icon.show()
@@ -323,24 +327,24 @@ class Main(MainWindow, MainWindowMixin, DeviceMixin, EmailMixin,  # {{{
                 action=self.alt_esc_action)
         self.alt_esc_action.triggered.connect(self.clear_additional_restriction)
 
-        ####################### Start spare job server ########################
+        # ###################### Start spare job server ########################
         QTimer.singleShot(1000, self.add_spare_server)
 
-        ####################### Location Manager ########################
+        # ###################### Location Manager ########################
         self.location_manager.location_selected.connect(self.location_selected)
         self.location_manager.unmount_device.connect(self.device_manager.umount_device)
         self.location_manager.configure_device.connect(self.configure_connected_device)
         self.location_manager.update_device_metadata.connect(self.update_metadata_on_device)
         self.eject_action.triggered.connect(self.device_manager.umount_device)
 
-        #################### Update notification ###################
+        # ################### Update notification ###################
         UpdateMixin.init_update_mixin(self, opts)
 
-        ####################### Search boxes ########################
+        # ###################### Search boxes ########################
         SearchRestrictionMixin.init_search_restirction_mixin(self)
         SavedSearchBoxMixin.init_saved_seach_box_mixin(self)
 
-        ####################### Library view ########################
+        # ###################### Library view ########################
         LibraryViewMixin.init_library_view_mixin(self, db)
         SearchBoxMixin.init_search_box_mixin(self)  # Requires current_db
 
@@ -369,15 +373,15 @@ class Main(MainWindow, MainWindowMixin, DeviceMixin, EmailMixin,  # {{{
         self.library_view.model().database_changed.connect(self.bars_manager.database_changed,
                 type=Qt.QueuedConnection)
 
-        ########################### Tags Browser ##############################
+        # ########################## Tags Browser ##############################
         TagBrowserMixin.init_tag_browser_mixin(self, db)
 
-        ######################### Search Restriction ##########################
+        # ######################## Search Restriction ##########################
         if db.prefs['virtual_lib_on_startup']:
             self.apply_virtual_library(db.prefs['virtual_lib_on_startup'])
         self.rebuild_vl_tabs()
 
-        ########################### Cover Flow ################################
+        # ########################## Cover Flow ################################
 
         CoverFlowMixin.init_cover_flow_mixin(self)
 
@@ -457,9 +461,9 @@ class Main(MainWindow, MainWindowMixin, DeviceMixin, EmailMixin,  # {{{
                 traceback.print_exc()
         if message:
             if not self.device_manager.is_running('Wireless Devices'):
-                    error_dialog(self, _('Problem starting the wireless device'),
-                                 _('The wireless device driver had problems starting. '
-                                   'It said "%s"')%message, show=True)
+                error_dialog(self, _('Problem starting the wireless device'),
+                             _('The wireless device driver had problems starting. '
+                               'It said "%s"')%message, show=True)
         self.iactions['Connect Share'].set_smartdevice_action_state()
 
     def start_content_server(self, check_started=True):
@@ -664,7 +668,7 @@ class Main(MainWindow, MainWindowMixin, DeviceMixin, EmailMixin,  # {{{
         self.search.clear()
         self.saved_search.clear()
         self.book_details.reset_info()
-        #self.library_view.model().count_changed()
+        # self.library_view.model().count_changed()
         db = self.library_view.model().db
         self.iactions['Choose Library'].count_changed(db.count())
         self.set_window_title()
@@ -950,4 +954,3 @@ class Main(MainWindow, MainWindowMixin, DeviceMixin, EmailMixin,  # {{{
                 e.ignore()
 
     # }}}
-

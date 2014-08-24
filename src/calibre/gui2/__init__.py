@@ -14,7 +14,7 @@ ORG_NAME = 'KovidsBrain'
 APP_UID  = 'libprs500'
 from calibre import prints
 from calibre.constants import (islinux, iswindows, isbsd, isfrozen, isosx,
-        plugins, config_dir, filesystem_encoding, DEBUG)
+        plugins, config_dir, filesystem_encoding, DEBUG, isxp)
 from calibre.utils.config import Config, ConfigProxy, dynamic, JSONConfig
 from calibre.ebooks.metadata import MetaInformation
 from calibre.utils.date import UNDEFINED_DATE
@@ -874,15 +874,22 @@ def setup_gui_option_parser(parser):
         parser.add_option('--detach', default=False, action='store_true',
                           help=_('Detach from the controlling terminal, if any (linux only)'))
 
-def detach_gui():
-    if islinux and not DEBUG:
+def do_detach(fork=True, setsid=True, redirect=True):
+    if fork:
         # Detach from the controlling process.
         if os.fork() != 0:
             raise SystemExit(0)
+    if setsid:
         os.setsid()
-        so, se = file(os.devnull, 'a+'), file(os.devnull, 'a+', 0)
-        os.dup2(so.fileno(), sys.__stdout__.fileno())
-        os.dup2(se.fileno(), sys.__stderr__.fileno())
+    if redirect:
+        try:
+            plugins['speedup'][0].detach(os.devnull)
+        except AttributeError:
+            pass  # people running from source without updated binaries
+
+def detach_gui():
+    if islinux and not DEBUG:
+        do_detach()
 
 class Application(QApplication):
 
@@ -896,8 +903,8 @@ class Application(QApplication):
             args.extend(['-platformpluginpath', sys.extensions_location, '-platform', 'headless'])
         qargs = [i.encode('utf-8') if isinstance(i, unicode) else i for i in args]
         self.pi = plugins['progress_indicator'][0]
-        self.setup_styles(force_calibre_style)
         QApplication.__init__(self, qargs)
+        self.setup_styles(force_calibre_style)
         f = QFont(QApplication.font())
         if (f.family(), f.pointSize()) == ('Sans Serif', 9):  # Hard coded Qt settings, no user preference detected
             f.setPointSize(10)
@@ -925,6 +932,14 @@ class Application(QApplication):
         qt_app = self
         self._file_open_paths = []
         self._file_open_lock = RLock()
+
+        if isxp:
+            error_dialog(None, _('Windows XP not supported'), '<p>' + _(
+                'calibre versions newer than 2.0 do not run on Windows XP. This is'
+                ' because the graphics toolkit calibre uses (Qt 5) crashes a lot'
+                ' on Windows XP. We suggest you stay with <a href="%s">calibre 1.48</a>'
+                ' which works well on Windows XP.') % 'http://download.calibre-ebook.com/1.48.0/', show=True)
+            raise SystemExit(1)
 
     def load_builtin_fonts(self, scan_for_fonts=False):
         if scan_for_fonts:
