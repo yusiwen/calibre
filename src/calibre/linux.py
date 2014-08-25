@@ -34,11 +34,11 @@ entry_points = {
              'calibre-smtp = calibre.utils.smtp:main',
         ],
         'gui_scripts' : [
-            __appname__+' = calibre.gui2.main:main',
+            __appname__+' = calibre.gui_launch:calibre',
             'lrfviewer    = calibre.gui2.lrf_renderer.main:main',
-            'ebook-viewer = calibre.gui2.viewer.main:main',
-            'ebook-edit   = calibre.gui2.tweak_book.main:main',
-                            ],
+            'ebook-viewer = calibre.gui_launch:ebook_viewer',
+            'ebook-edit   = calibre.gui_launch:ebook_edit',
+        ],
       }
 
 class PreserveMIMEDefaults(object):
@@ -1103,7 +1103,7 @@ def main():
 def cli_index_strings():
     return _('On OS X, the command line tools are inside the |app| bundle, for example,'
     ' if you installed calibre in :file:`/Applications` the command line tools'
-    ' are in :file:`/Applications/calibre.app/Contents/MacOS/calibre`.'), _(
+    ' are in :file:`/Applications/calibre.app/Contents/console.app/Contents/MacOS/`.'), _(
         'You can see usage for undocumented commands by executing them without arguments in a terminal.')
 
 
