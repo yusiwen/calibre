@@ -15,6 +15,7 @@ from PyQt5.Qt import (Qt, QVBoxLayout, QHBoxLayout, QWidget, QPushButton,
         QTabWidget, QIcon, QToolButton, QSplitter, QGroupBox, QSpacerItem,
         QSizePolicy, QFrame, QSize, QKeySequence, QMenu, QShortcut)
 
+from calibre.constants import isosx
 from calibre.ebooks.metadata import authors_to_string, string_to_authors
 from calibre.gui2 import ResizableDialog, error_dialog, gprefs, pixmap_to_data
 from calibre.gui2.metadata.basic_widgets import (TitleEdit, AuthorsEdit,
@@ -129,7 +130,18 @@ class MetadataSingleDialogBase(ResizableDialog):
               'change author sort from red to green.  There is a menu of '
               'functions available under this button. Click and hold '
               'on the button to see it.') + '</p>')
-        b.m = m = QMenu()
+        if isosx:
+            # Workaround for https://bugreports.qt-project.org/browse/QTBUG-41017
+            class Menu(QMenu):
+
+                def mouseReleaseEvent(self, ev):
+                    ac = self.actionAt(ev.pos())
+                    if ac is not None:
+                        ac.trigger()
+                    return QMenu.mouseReleaseEvent(self, ev)
+            b.m = m = Menu()
+        else:
+            b.m = m = QMenu()
         ac = m.addAction(QIcon(I('forward.png')), _('Set author sort from author'))
         ac2 = m.addAction(QIcon(I('back.png')), _('Set author from author sort'))
         ac3 = m.addAction(QIcon(I('user_profile.png')), _('Manage authors'))
@@ -1036,7 +1048,8 @@ def edit_metadata(db, row_list, current_row, parent=None, view_slot=None,
                 set_current_callback=set_current_callback)
         return d.changed, d.rows_to_refresh
     finally:
-        d.hide()  # possible workaround for bug reports of occasional ghost edit metadata dialog on windows
+        # possible workaround for bug reports of occasional ghost edit metadata dialog on windows
+        d.deleteLater()
 
 if __name__ == '__main__':
     from calibre.gui2 import Application as QApplication

@@ -7,7 +7,7 @@ __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import sys, os, shutil, plistlib, subprocess, glob, zipfile, tempfile, \
-    py_compile, stat, operator
+    py_compile, stat, operator, time
 abspath, join, basename = os.path.abspath, os.path.join, os.path.basename
 
 from setup import (
@@ -321,8 +321,6 @@ class Py2App(object):
         c = join(self.build_dir, 'Contents')
         for x in ('Frameworks', 'MacOS', 'Resources'):
             os.makedirs(join(c, x))
-        for x in ('book.icns',):
-            shutil.copyfile(join('icons', x), join(self.resources_dir, x))
         for x in glob.glob(join('icons', 'icns', '*.iconset')):
             subprocess.check_call([
                 'iconutil', '-c', 'icns', x, '-o', join(
@@ -343,6 +341,7 @@ class Py2App(object):
         env['CALIBRE_LAUNCHED_FROM_BUNDLE']='1'
         docs = [{'CFBundleTypeName':'E-book',
             'CFBundleTypeExtensions':list(BOOK_EXTENSIONS),
+            'CFBundleTypeIconFile':'book.icns',
             'CFBundleTypeRole':'Viewer',
             }]
 
@@ -360,7 +359,7 @@ class Py2App(object):
                 LSMinimumSystemVersion='10.7.2',
                 LSRequiresNativeExecution=True,
                 NSAppleScriptEnabled=False,
-                NSHumanReadableCopyright='Copyright 2014, Kovid Goyal',
+                NSHumanReadableCopyright=time.strftime('Copyright %Y, Kovid Goyal'),
                 CFBundleGetInfoString=('calibre, an E-book management '
                 'application. Visit http://calibre-ebook.com for details.'),
                 CFBundleIconFile='calibre.icns',

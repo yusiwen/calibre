@@ -347,7 +347,10 @@ With the USB cable + iTunes
 
 Use the 'Connect to iTunes' method in the 'Getting started' instructions in `Calibre + Apple iDevices: Start here <http://www.mobileread.com/forums/showthread.php?t=118559>`_.
 
-This method only works on Windows XP and higher, and OS X 10.5 and higher. Linux is not supported (iTunes is not available in linux) and OS X 10.4 is not supported.
+This method only works on Windows Vista and higher, and OS X upto 10.8 and
+higher. Linux is not supported (iTunes is not available in linux) and OS X
+newer than 10.8 is not supported, as Apple removed the facility to use iTunes
+to manage books, replacing it with iBooks.
 
 How do I use |app| with my Android phone/tablet or Kindle Fire HD?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -870,7 +873,7 @@ Downloading from the Internet can sometimes result in a corrupted download. If t
 
     * Try temporarily disabling your antivirus program (Microsoft Security Essentials, or Kaspersky or Norton or McAfee or whatever). This is most likely the culprit if the upgrade process is hanging in the middle.
     * Try rebooting your computer and running a registry cleaner like `Wise registry cleaner <http://www.wisecleaner.com>`_.
-    * Try a clean install. That is, uninstall |app|, delete :filepath:`C:\\Program Files\\Calibre2` (or wherever you previously chose to install |app|). Then re-install |app|. Note that uninstalling does not touch your books or settings.
+    * Try a clean install. That is, uninstall |app|, delete :file:`C:\\Program Files\\Calibre2` (or wherever you previously chose to install |app|). Then re-install |app|. Note that uninstalling does not touch your books or settings.
     * Try downloading the installer with an alternate browser. For example if you are using Internet Explorer, try using Firefox or Chrome instead.
     * If you get an error about a missing DLL on windows, then most likely, the
       permissions on your temporary folder are incorrect. Go to the folder
