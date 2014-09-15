@@ -2,7 +2,7 @@ __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 """ The GUI """
 import os, sys, Queue, threading, glob
-from threading import RLock
+from threading import RLock, Lock
 from urllib import unquote
 from PyQt5.Qt import (
     QFileInfo, QObject, QBuffer, Qt, QStyle, QByteArray, QTranslator,
@@ -117,7 +117,7 @@ defs['cover_grid_width'] = 0
 defs['cover_grid_height'] = 0
 defs['cover_grid_spacing'] = 0
 defs['cover_grid_color'] = (80, 80, 80)
-defs['cover_grid_cache_size'] = 100
+defs['cover_grid_cache_size_multiple'] = 5
 defs['cover_grid_disk_cache_size'] = 2500
 defs['cover_grid_show_title'] = False
 defs['cover_grid_texture'] = None
@@ -322,7 +322,7 @@ def question_dialog(parent, title, msg, det_msg='', show_copy_button=False,
         # Set skip_dialog_msg to a message displayed to the user
         skip_dialog_name=None, skip_dialog_msg=_('Show this confirmation again'),
         skip_dialog_skipped_value=True, skip_dialog_skip_precheck=True,
-        # Override icon (QIcon to be used as the icon for this dialog)
+        # Override icon (QIcon to be used as the icon for this dialog or string for I())
         override_icon=None,
         # Change the text/icons of the yes and no buttons.
         # The icons must be QIcon objects or strings for I()
@@ -344,6 +344,7 @@ def question_dialog(parent, title, msg, det_msg='', show_copy_button=False,
         tc.setVisible(True)
         tc.setText(skip_dialog_msg)
         tc.setChecked(bool(skip_dialog_skip_precheck))
+        d.resize_needed.emit()
 
     ret = d.exec_() == d.Accepted
 
@@ -850,10 +851,15 @@ gui_thread = None
 
 qt_app = None
 
+builtin_fonts_loaded = False
+
 def load_builtin_fonts():
-    global _rating_font
+    global _rating_font, builtin_fonts_loaded
     # Load the builtin fonts and any fonts added to calibre by the user to
     # Qt
+    if builtin_fonts_loaded:
+        return
+    builtin_fonts_loaded = True
     for ff in glob.glob(P('fonts/liberation/*.?tf')) + \
             [P('fonts/calibreSymbols.otf')] + \
             glob.glob(os.path.join(config_dir, 'fonts', '*.?tf')):
@@ -938,6 +944,20 @@ class Application(QApplication):
             for role in (p.Highlight, p.HighlightedText, p.Base, p.AlternateBase):
                 p.setColor(p.Inactive, role, p.color(p.Active, role))
             self.setPalette(p)
+
+        if iswindows:
+            # Prevent text copied to the clipboard from being lost on quit due to
+            # Qt 5 bug: https://bugreports.qt-project.org/browse/QTBUG-41125
+            self.aboutToQuit.connect(self.flush_clipboard)
+
+    def flush_clipboard(self):
+        try:
+            if self.clipboard().ownsClipboard():
+                import ctypes
+                ctypes.WinDLL('ole32.dll').OleFlushClipboard()
+        except Exception:
+            import traceback
+            traceback.print_exc()
 
     def load_builtin_fonts(self, scan_for_fonts=False):
         if scan_for_fonts:
@@ -1040,6 +1060,12 @@ class Application(QApplication):
         if colors != self.color_prefs.get('custom_colors_for_color_dialog', None):
             self.color_prefs.set('custom_colors_for_color_dialog', colors)
 
+    def __enter__(self):
+        self.setQuitOnLastWindowClosed(False)
+
+    def __exit__(self, *args):
+        self.setQuitOnLastWindowClosed(True)
+
 _store_app = None
 
 class SanitizeLibraryPath(object):
@@ -1096,13 +1122,16 @@ def open_local_file(path):
         url = QUrl.fromLocalFile(path)
         open_url(url)
 
+_ea_lock = Lock()
+
 def ensure_app():
     global _store_app
-    if _store_app is None and QApplication.instance() is None:
-        args = sys.argv[:1]
-        if islinux or isbsd:
-            args += ['-platformpluginpath', sys.extensions_location, '-platform', 'headless']
-        _store_app = QApplication(args)
+    with _ea_lock:
+        if _store_app is None and QApplication.instance() is None:
+            args = sys.argv[:1]
+            if islinux or isbsd:
+                args += ['-platformpluginpath', sys.extensions_location, '-platform', 'headless']
+            _store_app = QApplication(args)
 
 def must_use_qt():
     ''' This function should be called if you want to use Qt for some non-GUI

@@ -14,11 +14,36 @@ from mechanize import MozillaCookieJar
 from calibre import browser
 from calibre.constants import __appname__, __version__
 from calibre.ebooks import BOOK_EXTENSIONS
-from calibre.gui2 import Dispatcher
+from calibre.gui2 import Dispatcher, gprefs
+from calibre.gui2.dialogs.message_box import MessageBox
 from calibre.gui2.threaded_jobs import ThreadedJob
 from calibre.ptempfile import PersistentTemporaryDirectory
 from calibre.utils.filenames import ascii_filename
 from calibre.web import get_download_filename_from_response
+
+
+class DownloadInfo(MessageBox):
+
+    def __init__(self, filename, parent=None):
+        MessageBox.__init__(
+            self, MessageBox.INFO, _('Downloading book'), _(
+                'The book {0} will be downloaded and added to your'
+                ' calibre library automatically.').format(filename),
+            show_copy_button=False, parent=parent
+        )
+        self.toggle_checkbox.setChecked(True)
+        self.toggle_checkbox.setVisible(True)
+        self.toggle_checkbox.setText(_('Show this message again'))
+        self.toggle_checkbox.toggled.connect(self.show_again_changed)
+        self.resize_needed.emit()
+
+    def show_again_changed(self):
+        gprefs.set('show_get_books_download_info', self.toggle_checkbox.isChecked())
+
+def show_download_info(filename, parent=None):
+    if not gprefs.get('show_get_books_download_info', True):
+        return
+    DownloadInfo(filename, parent).exec_()
 
 def get_download_filename(response):
     filename = get_download_filename_from_response(response)
@@ -29,6 +54,8 @@ def get_download_filename(response):
 
 def download_file(url, cookie_file=None, filename=None):
     user_agent = None
+    if url.startswith('//'):
+        url = 'http:' + url
     if url.startswith('http://www.gutenberg.org'):
         # Project Gutenberg returns an HTML page if the user agent is a normal
         # browser user agent
@@ -57,8 +84,6 @@ class EbookDownload(object):
             dfilename = self._download(cookie_file, url, filename, save_loc, add_to_lib)
             self._add(dfilename, gui, add_to_lib, tags)
             self._save_as(dfilename, save_loc)
-        except Exception as e:
-            raise e
         finally:
             try:
                 if dfilename:

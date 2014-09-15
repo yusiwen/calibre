@@ -121,7 +121,7 @@ def get_default_library_path():
     return x
 
 
-def get_library_path(parent=None):
+def get_library_path(gui_runner):
     library_path = prefs['library_path']
     if library_path is None:  # Need to migrate to new database layout
         base = os.path.expanduser('~')
@@ -130,9 +130,7 @@ def get_library_path(parent=None):
             if not base or not os.path.exists(base):
                 from PyQt5.Qt import QDir
                 base = unicode(QDir.homePath()).replace('/', os.sep)
-        candidate = choose_dir(None, 'choose calibre library',
-                _('Choose a location for your calibre e-book library'),
-                default_dir=base)
+        candidate = gui_runner.choose_dir(base)
         if not candidate:
             candidate = os.path.join(base, 'Calibre Library')
         library_path = os.path.abspath(candidate)
@@ -140,13 +138,11 @@ def get_library_path(parent=None):
         try:
             os.makedirs(library_path)
         except:
-            error_dialog(parent, _('Failed to create library'),
+            gui_runner.show_error(_('Failed to create library'),
                     _('Failed to create calibre library at: %r.\n'
                       'You will be asked to choose a new library location.')%library_path,
-                    det_msg=traceback.format_exc(), show=True)
-            library_path = choose_dir(parent, 'choose calibre library',
-                _('Choose a location for your new calibre e-book library'),
-                default_dir=get_default_library_path())
+                    det_msg=traceback.format_exc())
+            library_path = gui_runner.choose_dir(get_default_library_path())
     return library_path
 
 def repair_library(library_path):
@@ -201,6 +197,23 @@ class GuiRunner(QObject):
             add_filesystem_book(event)
         self.app.file_event_hook = add_filesystem_book
 
+    def hide_splash_screen(self):
+        if self.splash_screen is not None:
+            with self.app:
+                self.splash_screen.hide()
+        self.splash_screen = None
+
+    def choose_dir(self, initial_dir):
+        self.hide_splash_screen()
+        return choose_dir(None, 'choose calibre library',
+                _('Choose a location for your new calibre e-book library'),
+                default_dir=initial_dir)
+
+    def show_error(self, title, msg, det_msg=''):
+        self.hide_splash_screen()
+        with self.app:
+            error_dialog(self.main, title, msg, det_msg=det_msg, show=True)
+
     def initialization_failed(self):
         print 'Catastrophic failure initializing GUI, bailing out...'
         QCoreApplication.exit(1)
@@ -211,14 +224,11 @@ class GuiRunner(QObject):
 
         if db is None and tb is not None:
             # DB Repair failed
-            error_dialog(None, _('Repairing failed'),
-                    _('The database repair failed. Starting with '
-                        'a new empty library.'),
-                    det_msg=tb, show=True)
+            self.show_error(_('Repairing failed'), _(
+                'The database repair failed. Starting with a new empty library.'),
+                            det_msg=tb)
         if db is None:
-            candidate = choose_dir(None, 'choose calibre library',
-                _('Choose a location for your new calibre e-book library'),
-                default_dir=get_default_library_path())
+            candidate = self.choose_dir(get_default_library_path())
             if not candidate:
                 self.initialization_failed()
 
@@ -226,19 +236,18 @@ class GuiRunner(QObject):
                 self.library_path = candidate
                 db = LibraryDatabase(candidate)
             except:
-                error_dialog(None, _('Bad database location'),
-                    _('Bad database location %r. calibre will now quit.'
-                     )%self.library_path,
-                    det_msg=traceback.format_exc(), show=True)
+                self.show_error(_('Bad database location'), _(
+                    'Bad database location %r. calibre will now quit.')%self.library_path,
+                    det_msg=traceback.format_exc())
                 self.initialization_failed()
 
         try:
             self.start_gui(db)
         except Exception:
-            error_dialog(self.main, _('Startup error'),
-                         _('There was an error during {0} startup.'
-                           ' Parts of {0} may not function. Click Show details to learn more.').format(__appname__),
-                         det_msg=traceback.format_exc(), show=True)
+            self.show_error(_('Startup error'), _(
+                'There was an error during {0} startup. Parts of {0} may not function.'
+                ' Click Show details to learn more.').format(__appname__),
+                         det_msg=traceback.format_exc())
 
     def initialize_db(self):
         from calibre.db.legacy import LibraryDatabase
@@ -246,22 +255,24 @@ class GuiRunner(QObject):
         try:
             db = LibraryDatabase(self.library_path)
         except apsw.Error:
-            repair = question_dialog(None, _('Corrupted database'),
-                    _('The library database at %s appears to be corrupted. Do '
-                    'you want calibre to try and rebuild it automatically? '
-                    'The rebuild may not be completely successful. '
-                    'If you say No, a new empty calibre library will be created.')
-                    % force_unicode(self.library_path, filesystem_encoding),
-                    det_msg=traceback.format_exc()
-                    )
+            self.hide_splash_screen()
+            with self.app:
+                repair = question_dialog(None, _('Corrupted database'),
+                        _('The library database at %s appears to be corrupted. Do '
+                        'you want calibre to try and rebuild it automatically? '
+                        'The rebuild may not be completely successful. '
+                        'If you say No, a new empty calibre library will be created.')
+                        % force_unicode(self.library_path, filesystem_encoding),
+                        det_msg=traceback.format_exc()
+                        )
             if repair:
                 if repair_library(self.library_path):
                     db = LibraryDatabase(self.library_path)
         except:
-            error_dialog(None, _('Bad database location'),
+            self.show_error(_('Bad database location'),
                     _('Bad database location %r. Will start with '
                     ' a new, empty calibre library')%self.library_path,
-                    det_msg=traceback.format_exc(), show=True)
+                    det_msg=traceback.format_exc())
 
         self.initialize_db_stage2(db, None)
 
@@ -273,7 +284,7 @@ class GuiRunner(QObject):
         if gprefs['show_splash_screen']:
             self.show_splash_screen()
 
-        self.library_path = get_library_path(parent=None)
+        self.library_path = get_library_path(self)
         if not self.library_path:
             self.initialization_failed()
 
@@ -283,8 +294,8 @@ def get_debug_executable():
     e = sys.executable if getattr(sys, 'frozen', False) else sys.argv[0]
     if hasattr(sys, 'frameworks_dir'):
         base = os.path.dirname(sys.frameworks_dir)
-        if 'console.app' not in base:
-            base = os.path.join(base, 'console.app', 'Contents')
+        if 'calibre-debug.app' not in base:
+            base = os.path.join(base, 'calibre-debug.app', 'Contents')
         exe = os.path.basename(e)
         if '-debug' not in exe:
             exe += '-debug'
@@ -311,6 +322,9 @@ def run_in_debug_mode(logpath=None):
             stderr=subprocess.STDOUT, stdin=open(os.devnull, 'r'),
             creationflags=creationflags)
 
+def shellquote(s):
+    return "'" + s.replace("'", "'\\''") + "'"
+
 def run_gui(opts, args, listener, app, gui_debug=None):
     initialize_file_icon_provider()
     app.load_builtin_fonts(scan_for_fonts=True)
@@ -333,8 +347,8 @@ def run_gui(opts, args, listener, app, gui_debug=None):
             import subprocess
             print 'Restarting with:', e, sys.argv
             if hasattr(sys, 'frameworks_dir'):
-                app = os.path.dirname(os.path.dirname(sys.frameworks_dir))
-                subprocess.Popen('sleep 3s; open '+app, shell=True)
+                app = os.path.dirname(os.path.dirname(os.path.realpath(sys.frameworks_dir)))
+                subprocess.Popen('sleep 3s; open ' + shellquote(app), shell=True)
             else:
                 if iswindows and hasattr(winutil, 'prepare_for_restart'):
                     winutil.prepare_for_restart()

@@ -38,6 +38,9 @@ from calibre.ptempfile import PersistentTemporaryFile, SpooledTemporaryFile
 from calibre.gui2.languages import LanguagesEdit as LE
 from calibre.db import SPOOL_SIZE
 
+OK_COLOR = 'rgba(0, 255, 0, 12%)'
+ERR_COLOR = 'rgba(255, 0, 0, 12%)'
+
 def save_dialog(parent, title, msg, det_msg=''):
     d = QMessageBox(parent)
     d.setWindowTitle(title)
@@ -146,7 +149,7 @@ class TitleSortEdit(TitleEdit):
                   'No action is required if this is what you want.'))
         self.tooltips = (ok_tooltip, bad_tooltip)
 
-        self.title_edit.textChanged.connect(self.update_state_and_val)
+        self.title_edit.textChanged.connect(self.update_state_and_val, type=Qt.QueuedConnection)
         self.textChanged.connect(self.update_state)
 
         self.autogen_button = autogen_button
@@ -177,10 +180,7 @@ class TitleSortEdit(TitleEdit):
     def update_state(self, *args):
         ts = title_sort(self.title_edit.current_val, lang=self.book_lang)
         normal = ts == self.current_val
-        if normal:
-            col = 'rgb(0, 255, 0, 20%)'
-        else:
-            col = 'rgb(255, 0, 0, 20%)'
+        col = OK_COLOR if normal else ERR_COLOR
         self.setStyleSheet('QLineEdit { color: black; '
                               'background-color: %s; }'%col)
         tt = self.tooltips[0 if normal else 1]
@@ -259,6 +259,7 @@ class AuthorsEdit(EditWithComplete):
                                         select_sort=False)
         self.initialize(self.db, self.id_)
         self.dialog.author_sort.initialize(self.db, self.id_)
+        self.dialog.author_sort.update_state()
 
     def get_default(self):
         return _('Unknown')
@@ -339,7 +340,7 @@ class AuthorSortEdit(EnLineEdit):
                     'No action is required if this is what you want.'))
         self.tooltips = (ok_tooltip, bad_tooltip)
 
-        self.authors_edit.editTextChanged.connect(self.update_state_and_val)
+        self.authors_edit.editTextChanged.connect(self.update_state_and_val, type=Qt.QueuedConnection)
         self.textChanged.connect(self.update_state)
 
         self.autogen_button = autogen_button
@@ -381,10 +382,7 @@ class AuthorSortEdit(EnLineEdit):
         au = self.db.author_sort_from_authors(string_to_authors(au))
 
         normal = strcmp(au, self.current_val) == 0
-        if normal:
-            col = 'rgb(0, 255, 0, 20%)'
-        else:
-            col = 'rgb(255, 0, 0, 20%)'
+        col = OK_COLOR if normal else ERR_COLOR
         self.setStyleSheet('QLineEdit { color: black; '
                               'background-color: %s; }'%col)
         tt = self.tooltips[0 if normal else 1]
@@ -1322,10 +1320,10 @@ class IdentifiersEdit(QLineEdit):  # {{{
         if not isbn:
             col = 'none'
         elif check_isbn(isbn) is not None:
-            col = 'rgba(0,255,0,20%)'
+            col = OK_COLOR
             extra = '\n\n'+_('This ISBN number is valid')
         else:
-            col = 'rgba(255,0,0,20%)'
+            col = ERR_COLOR
             extra = '\n\n' + _('This ISBN number is invalid')
         self.setToolTip(tt+extra)
         self.setStyleSheet('QLineEdit { background-color: %s }'%col)
@@ -1384,10 +1382,10 @@ class ISBNDialog(QDialog):  # {{{
             col = 'none'
             extra = ''
         elif check_isbn(isbn) is not None:
-            col = 'rgba(0,255,0,20%)'
+            col = OK_COLOR
             extra = _('This ISBN number is valid')
         else:
-            col = 'rgba(255,0,0,20%)'
+            col = ERR_COLOR
             extra = _('This ISBN number is invalid')
         self.line_edit.setToolTip(extra)
         self.line_edit.setStyleSheet('QLineEdit { background-color: %s }'%col)
