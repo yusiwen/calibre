@@ -772,6 +772,27 @@ class Boss(QObject):
             if text and text.strip():
                 self.gui.central.pre_fill_search(text)
 
+    def search_action_triggered(self, action, overrides=None):
+        ss = self.gui.saved_searches.isVisible()
+        trigger_saved_search = ss and (not self.gui.central.search_panel.isVisible() or self.gui.saved_searches.has_focus())
+        if trigger_saved_search:
+            return self.gui.saved_searches.trigger_action(action, overrides=overrides)
+        self.search(action, overrides)
+
+    def run_saved_searches(self, searches, action):
+        ed = self.gui.central.current_editor
+        name = editor_name(ed)
+        searchable_names = self.gui.file_list.searchable_names
+        if not searches or not validate_search_request(name, searchable_names, getattr(ed, 'has_marked_text', False), searches[0], self.gui):
+            return
+        ret = run_search(searches, action, ed, name, searchable_names,
+                   self.gui, self.show_editor, self.edit_file, self.show_current_diff, self.add_savepoint, self.rewind_savepoint, self.set_modified)
+        ed = ret is True and self.gui.central.current_editor
+        if getattr(ed, 'has_line_numbers', False):
+            ed.editor.setFocus(Qt.OtherFocusReason)
+        else:
+            self.gui.saved_searches.setFocus(Qt.OtherFocusReason)
+
     def search(self, action, overrides=None):
         # Run a search/replace
         sp = self.gui.central.search_panel
@@ -786,8 +807,13 @@ class Boss(QObject):
         if not validate_search_request(name, searchable_names, getattr(ed, 'has_marked_text', False), state, self.gui):
             return
 
-        run_search(state, action, ed, name, searchable_names,
+        ret = run_search(state, action, ed, name, searchable_names,
                    self.gui, self.show_editor, self.edit_file, self.show_current_diff, self.add_savepoint, self.rewind_savepoint, self.set_modified)
+        ed = ret is True and self.gui.central.current_editor
+        if getattr(ed, 'has_line_numbers', False):
+            ed.editor.setFocus(Qt.OtherFocusReason)
+        else:
+            self.gui.saved_searches.setFocus(Qt.OtherFocusReason)
 
     def find_word(self, word, locations):
         # Go to a word from the spell check dialog
@@ -837,25 +863,14 @@ class Boss(QObject):
                 error_dialog(self.gui, _('Not found'), _(
                     'No file with the name %s was found in the book') % target, show=True)
 
-    def saved_searches(self):
-        self.gui.saved_searches.show(), self.gui.saved_searches.raise_()
-
     def save_search(self):
         state = self.gui.central.search_panel.state
         self.show_saved_searches()
         self.gui.saved_searches.add_predefined_search(state)
 
     def show_saved_searches(self):
-        self.gui.saved_searches.show(), self.gui.saved_searches.raise_()
-
-    def run_saved_searches(self, searches, action):
-        ed = self.gui.central.current_editor
-        name = editor_name(ed)
-        searchable_names = self.gui.file_list.searchable_names
-        if not searches or not validate_search_request(name, searchable_names, getattr(ed, 'has_marked_text', False), searches[0], self.gui):
-            return
-        run_search(searches, action, ed, name, searchable_names,
-                   self.gui, self.show_editor, self.edit_file, self.show_current_diff, self.add_savepoint, self.rewind_savepoint, self.set_modified)
+        self.gui.saved_searches_dock.show()
+    saved_searches = show_saved_searches
 
     def create_checkpoint(self):
         text, ok = QInputDialog.getText(self.gui, _('Choose name'), _(

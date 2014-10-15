@@ -72,7 +72,7 @@ Finally, I encourage you to ditch the content ToC and only have a metadata ToC i
     Kindle firmware tends to malfunction if you disable the generation of the
     end-of-file inline ToC. So it is recommended that you leave the generated
     ToC alone. If you create an AZW3 file with a metadata ToC and no
-    end-of-file generated ToC, some features ont he Kindle will not work, such
+    end-of-file generated ToC, some features on the Kindle will not work, such
     as the Page Flip feature.
 
 The covers for my MOBI files have stopped showing up in Kindle for PC/Kindle for Android/iPad etc.
@@ -93,7 +93,7 @@ this bug.
 
 How do I convert a collection of HTML files in a specific order?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-In order to convert a collection of HTML files in a specific oder, you have to
+In order to convert a collection of HTML files in a specific order, you have to
 create a table of contents file. That is, another HTML file that contains links
 to all the other files in the desired order. Such a file looks like::
 
@@ -123,7 +123,7 @@ conversion dialog to control how the Table of Contents is generated.
     and customizing the HTML to ZIP plugin.
 
 The EPUB I produced with |app| is not valid?
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 |app| does not guarantee that an EPUB produced by it is valid. The only
 guarantee it makes is that if you feed it valid XHTML 1.1 + CSS 2.1 it will
@@ -134,7 +134,7 @@ of its users. If you need a tool that always produces valid EPUBs, |app| is not
 for you.
 
 How do I use some of the advanced features of the conversion tools?
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~J
 You can get help on any individual feature of the converters by mousing over
 it in the GUI or running ``ebook-convert dummy.html .epub -h`` at a terminal.
 A good place to start is to look at the following demo file that demonstrates
@@ -150,7 +150,7 @@ Device Integration
   :local:
 
 What devices does |app| support?
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 |app| can directly connect to all the major (and most of the minor) ebook
 reading devices, smarthphones, tablets, etc.  In addition, using the
 :guilabel:`Connect to folder` function you can use it with any ebook reader
@@ -179,7 +179,7 @@ will appear in the next release of |app|. To send us the output, open a bug repo
 See `calibre bugs <http://calibre-ebook.com/bugs>`_.
 
 My device is not being detected by |app|?
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Follow these steps to find the problem:
 
@@ -276,7 +276,7 @@ simplest is to simply re-name the executable file that launches the library prog
 `in the forums <http://www.mobileread.com/forums/showthread.php?t=65809>`_.
 
 How do I use |app| with my iPad/iPhone/iPod touch?
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Over the air
 ^^^^^^^^^^^^^^
@@ -528,7 +528,7 @@ available `from here <http://www.mobileread.com/forums/showthread.php?t=244202>`
     above plugin useless, unless you root your Kindle and install custom firmware.
 
 I am getting an error when I try to use |app| with my Kobo Touch/Glo/etc.?
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The Kobo has very buggy firmware. Connecting to it has been known to fail at
 random. Certain combinations of motherboard, USB ports/cables/hubs can
@@ -654,7 +654,7 @@ the |app| icon on the tool bar, select Library Maintenance and run the Check
 Library action. It will warn you about any problems in your library, which you
 should fix by hand.
 
-.. note:: A |app| library is just a folder which contains all the book files and their metadata. All the metadata is stored in a single file called metadata.db, in the top level folder. If this file gets corrupted, you may see an empty list of books in |app|. In this case you can ask |app| to restore your books by doing a right-click on the |app| icon in the toolbar and selecting Library Maintenance->Restore Library.
+.. note:: A |app| library is just a folder which contains all the book files and their metadata. All the metadata is stored in a single file called metadata.db, in the top level folder. If this file gets corrupted, you may see an empty list of books in |app|. In this case you can ask |app| to restore your books by doing a right-click on the |app| icon in the toolbar and selecting Library Maintenance->Restore database
 
 The list of books in |app| is blank!
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -941,7 +941,7 @@ A permission denied error can occur because of many possible reasons, none of th
   * If your file is open in another program.
   * If the file resides on a device, you may have reached the limit of a maximum of 256 files in the root of the device. In this case you need to reformat the device/sd card referered to in the error message with a FAT32 filesystem, or delete some files from the SD card/device memory.
     
-You will need to fix the underlying cause of the permissions error before resuming to use |app|. Read the error message carefully, see what file it points to and fix the permissions on that file.
+You will need to fix the underlying cause of the permissions error before resuming to use |app|. Read the error message carefully, see what file it points to and fix the permissions on that file or its containing folders.
 
 Can I have the comment metadata show up on my reader?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

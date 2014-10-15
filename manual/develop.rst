@@ -1,7 +1,7 @@
 .. _develop:
 
 Setting up a |app| development environment
-===========================================
+===========================================================
 
 |app| is completely open source, licensed under the `GNU GPL v3 <http://www.gnu.org/copyleft/gpl.html>`_.
 This means that you are free to download and modify the program to your heart's content. In this section,
@@ -19,7 +19,7 @@ Design philosophy
 |app| has its roots in the Unix world, which means that its design is highly modular.
 The modules interact with each other via well defined interfaces. This makes adding new features and fixing
 bugs in |app| very easy, resulting in a frenetic pace of development. Because of its roots, |app| has a
-comprehensive command line interface for all its functions, documented in :ref:`cli`.
+comprehensive command line interface for all its functions, documented in :doc:`generated/|lang|/cli-index`.
 
 The modular design of |app| is expressed via ``Plugins``. There is a :ref:`tutorial <customize>` on writing |app| plugins.
 For example, adding support for a new device to |app| typically involves writing less than a 100 lines of code in the form of
@@ -249,7 +249,7 @@ in your favorite editor and add the line::
 near the top of the file. Now run the command :command:`calibredb`. The very first line of output should be ``Hello, world!``.
 
 Having separate "normal" and "development" |app| installs on the same computer
--------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------
 
 The |app| source tree is very stable and rarely breaks, but if you feel the need to run from source on a separate
 test library and run the released |app| version with your everyday library, you can achieve this easily using

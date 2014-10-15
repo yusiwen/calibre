@@ -13,14 +13,14 @@ from PyQt5.Qt import (
     QIcon, QWidget, Qt, QGridLayout, QScrollBar, QToolBar, QAction,
     QToolButton, QMenu, QDoubleSpinBox, pyqtSignal, QLineEdit,
     QRegExpValidator, QRegExp, QPalette, QColor, QBrush, QPainter,
-    QDockWidget, QSize, QWebView, QLabel)
+    QDockWidget, QSize, QWebView, QLabel, QVBoxLayout)
 
 from calibre.gui2 import rating_font, workaround_broken_under_mouse
 from calibre.gui2.main_window import MainWindow
 from calibre.gui2.search_box import SearchBox2
 from calibre.gui2.viewer.documentview import DocumentView
 from calibre.gui2.viewer.bookmarkmanager import BookmarkManager
-from calibre.gui2.viewer.toc import TOCView
+from calibre.gui2.viewer.toc import TOCView, TOCSearch
 
 class DoubleSpinBox(QDoubleSpinBox):  # {{{
 
@@ -102,7 +102,7 @@ class Metadata(QWebView):  # {{{
 
 class History(list):  # {{{
 
-    def __init__(self, action_back, action_forward):
+    def __init__(self, action_back=None, action_forward=None):
         self.action_back = action_back
         self.action_forward = action_forward
         super(History, self).__init__(self)
@@ -111,37 +111,47 @@ class History(list):  # {{{
         self.forward_pos = None
         self.set_actions()
 
-    def set_actions(self):
-        self.action_back.setDisabled(self.back_pos is None)
-        self.action_forward.setDisabled(self.forward_pos is None)
+    def clear(self):
+        del self[:]
 
-    def back(self, from_pos):
+    def set_actions(self):
+        if self.action_back is not None:
+            self.action_back.setDisabled(self.back_pos is None)
+        if self.action_forward is not None:
+            self.action_forward.setDisabled(self.forward_pos is None)
+
+    def back(self, item_when_clicked):
         # Back clicked
         if self.back_pos is None:
             return None
         item = self[self.back_pos]
         self.forward_pos = self.back_pos+1
         if self.forward_pos >= len(self):
-            self.append(from_pos)
+            # We are at the head of the stack, append item to the stack so that
+            # clicking forward again will take us to where we were when we
+            # clicked back
+            self.append(item_when_clicked)
             self.forward_pos = len(self) - 1
         self.insert_pos = self.forward_pos
         self.back_pos = None if self.back_pos == 0 else self.back_pos - 1
         self.set_actions()
         return item
 
-    def forward(self, from_pos):
+    def forward(self, item_when_clicked):
+        # Forward clicked
         if self.forward_pos is None:
             return None
         item = self[self.forward_pos]
         self.back_pos = self.forward_pos - 1
         if self.back_pos < 0:
             self.back_pos = None
-        self.insert_pos = self.back_pos or 0
+        self.insert_pos = min(len(self) - 1, (self.back_pos or 0) + 1)
         self.forward_pos = None if self.forward_pos > len(self) - 2 else self.forward_pos + 1
         self.set_actions()
         return item
 
     def add(self, item):
+        # Link clicked
         self[self.insert_pos:] = []
         while self.insert_pos > 0 and self[self.insert_pos-1] == item:
             self.insert_pos -= 1
@@ -153,6 +163,19 @@ class History(list):  # {{{
         # There can be no forward
         self.forward_pos = None
         self.set_actions()
+
+    def __str__(self):
+        return 'History: Items=%s back_pos=%s insert_pos=%s forward_pos=%s' % (tuple(self), self.back_pos, self.insert_pos, self.forward_pos)
+
+def test_history():
+    h = History()
+    for i in xrange(4):
+        h.add(i)
+    for i in reversed(h):
+        h.back(i)
+    h.forward(0)
+    h.add(9)
+    assert h == [0, 9]
 # }}}
 
 class Main(MainWindow):
@@ -213,9 +236,13 @@ class Main(MainWindow):
         self.tool_bar2.addWidget(self.search)
 
         self.toc_dock = d = QDockWidget(_('Table of Contents'), self)
-        self.toc = TOCView(self)
+        self.toc_container = w = QWidget(self)
+        w.l = QVBoxLayout(w)
+        self.toc = TOCView(w)
+        self.toc_search = TOCSearch(self.toc, parent=w)
+        w.l.addWidget(self.toc), w.l.addWidget(self.toc_search), w.l.setContentsMargins(0, 0, 0, 0)
         d.setObjectName('toc-dock')
-        d.setWidget(self.toc)
+        d.setWidget(w)
         d.close()  # starts out hidden
         self.addDockWidget(Qt.LeftDockWidgetArea, d)
         d.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
@@ -321,7 +348,7 @@ class Main(MainWindow):
         a('copy', _('Copy to clipboard'), 'edit-copy.png').setDisabled(True)
         a('font_size_larger', _('Increase font size'), 'font_size_larger.png')
         a('font_size_smaller', _('Decrease font size'), 'font_size_smaller.png')
-        a('table_of_contents', self.toc_dock, 'highlight_only_on.png')
+        a('table_of_contents', self.toc_dock, 'highlight_only_on.png', sc_name='Table of Contents')
         a('full_screen', _('Toggle full screen'), 'page.png', sc_name='Fullscreen').setCheckable(True)
         self.tool_bar.addSeparator()
 
